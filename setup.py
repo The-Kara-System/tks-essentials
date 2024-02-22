@@ -1,19 +1,19 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="fa-essentials",
+    name="tks-essentials",
     packages=find_packages(
         include=[
-            "faessentials",
-            # 'faessentials.models',
-            # 'faessentials.models.market',
-            # 'faessentials.models.exchange',
-            # 'faessentials.models.db_independent'
+            "tksessentials",
+            # 'tksessentials.models',
+            # 'tksessentials.models.market',
+            # 'tksessentials.models.exchange',
+            # 'tksessentials.models.db_independent'
         ],
         exclude=["tests*"],
     ),
-    # packages=['faessentials'],
-    # package_dir={'faessentials':'src'}
+    # packages=['tksessentials'],
+    # package_dir={'tksessentials':'src'}
     # packages=find_packages(),
     # version='0.1.0',
     # description='The library describes the most common models used in trading systems.',

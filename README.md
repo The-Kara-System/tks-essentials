@@ -1,4 +1,4 @@
-# fa-essentials
+# tks-essentials
 A library with essentials needed in every backend python app. e.g. logging, local db connection, filtering, formatting etc.
 
 ## Sponsors
@@ -17,9 +17,9 @@ run tests with `pytest -s -vv` to see all the details.
 
 ### Installation as Consuming Developer
 
-Simply run: `pip install fa-essentials`
+Simply run: `pip install tks-essentials`
 
-Import in modules without the dash (e.g.): `from faessentials.globallogger import GlobalLogger`
+Import in modules without the dash (e.g.): `from tksessentials.globallogger import GlobalLogger`
 
 ### Setup as Contributor
 Create the virtul environment: 
@@ -62,7 +62,7 @@ Use
  to create the dist, build and .eggs folder.
 
 ## Reference from a different project
-In order to use your own version of the project - to maybe contribute to the library - simply clone the code from github into new directory. Then add the path of that new directory to the requirements.txt file of your project. Then change in fa-essentials whatever you recommend to improve. Don't forget the Open-Closed Principle: extend only (unless it requires a breaking change)
+In order to use your own version of the project - to maybe contribute to the library - simply clone the code from github into new directory. Then add the path of that new directory to the requirements.txt file of your project. Then change in tks-essentials whatever you recommend to improve. Don't forget the Open-Closed Principle: extend only (unless it requires a breaking change)
 
 
 ## Releasing a new version
@@ -114,4 +114,4 @@ twine upload dist/*
 
 Done.
 
-(P.S. Do not forget to update the library in your projects: `pip install --upgrade fa-essentials`)bumpver update --patch
+(P.S. Do not forget to update the library in your projects: `pip install --upgrade tks-essentials`)bumpver update --patch

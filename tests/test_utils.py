@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 import yaml
-from faessentials import utils
+from tksessentials import utils
 
 @pytest.fixture
 def mock_project_root(monkeypatch, tmp_path):
@@ -73,12 +73,12 @@ def test_get_domain_name_failure(monkeypatch):
     with pytest.raises(ValueError):
         utils.get_domain_name()
 
-def test_get_redis_cluster_service_name_with_env(monkeypatch):
-    monkeypatch.setenv("REDIS_CLUSTER_NODES", "redis-node1:1234")
+def test_get_redis_sentinel_service_name(monkeypatch):
+    monkeypatch.setenv("REDIS_SENTINEL_SERVICE", "redis-node1:1234")
     expected_result = ["redis-node1", "1234"]
-    assert utils.get_redis_cluster_service_name() == expected_result
+    assert utils.get_redis_sentinel_service_name() == expected_result
 
-def test_get_redis_cluster_service_name_default(monkeypatch):
+def test_get_redis_sentinel_client(monkeypatch):
     monkeypatch.delenv("REDIS_CLUSTER_NODES", raising=False)
     expected_result = ["redis-cluster-leader", "6379"]
-    assert utils.get_redis_cluster_service_name() == expected_result
+    assert utils.get_redis_sentinel_client() == expected_result

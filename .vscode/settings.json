@@ -1,6 +1,6 @@
 {
     "python.analysis.extraPaths": [
-        "./faessentials"
+        "./tksessentials"
     ],
     "python.testing.pytestArgs": [
         "tests"
