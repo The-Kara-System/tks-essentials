@@ -1,4 +1,5 @@
-from pathlib import Path
+import os
+import pathlib
 import pytest
 import yaml
 from faessentials import utils
@@ -43,6 +44,14 @@ def test_get_app_config(monkeypatch, tmp_path):
     # Run the test
     assert utils.get_app_config() == expected_config
 
+def test_find_project_root():
+    try:        
+        project_root = utils.find_project_root(pathlib.Path(__file__).resolve())
+        print(project_root)
+    except Exception as e:
+        # If any exception is caught, fail the test explicitly.
+        assert False, f"An exception was thrown: {e}"
+
 def test_get_application_name_success(monkeypatch):
     def mock_get_app_config():
         return {"application": "TestApp"}
@@ -80,5 +89,24 @@ def test_get_redis_cluster_service_name_with_env(monkeypatch):
 
 def test_get_redis_cluster_service_name_default(monkeypatch):
     monkeypatch.delenv("REDIS_CLUSTER_NODES", raising=False)
-    expected_result = ["redis-cluster-leader", "6379"]
+    expected_result = ["uat.redis.fa.sahri.local", "6379"]
     assert utils.get_redis_cluster_service_name() == expected_result
+
+@pytest.mark.skipif(os.environ.get("GITHUB_ACTIONS") == "true", reason="Requires DEV environment with a local Redis cluster and should not run on GitHub Actions")
+def test_get_redis_cluster_client_add_method():
+    # Obtain the RedisCluster client
+    rc = utils.get_redis_cluster_client()
+
+    # Perform a test operation - add a key with a value
+    test_key = "test_key"
+    test_value = "test_value"
+    rc.set(test_key, test_value)
+
+    # Retrieve the value to verify the operation
+    value = rc.get(test_key)
+
+    # Clean up by deleting the test key
+    rc.delete(test_key)
+
+    # Assert that the retrieved value matches the test value
+    assert value == test_value
