@@ -2,11 +2,11 @@ import os
 import pathlib
 from pathlib import Path
 import yaml
-from redis.sentinel import Sentinel
+from redis.cluster import RedisCluster, ClusterNode
 
-# Determine the project root path when the module is loaded
 PROJECT_ROOT = None
 
+# Determine the project root path when the module is loaded
 def find_project_root(current_path: pathlib.Path, max_depth: int = 10) -> pathlib.Path:
     """
     Recursively search for a marker (like the 'config' or 'logs' directory) to find the project root.
@@ -18,10 +18,14 @@ def find_project_root(current_path: pathlib.Path, max_depth: int = 10) -> pathli
         return pathlib.Path(project_root_env)
 
     for _ in range(max_depth):
-        if (current_path / "config").exists() or (current_path / "logs").exists():
-            return current_path
+        if (current_path.cwd() / "config").exists() or (current_path.cwd() / "logs").exists():
+            return current_path.cwd()
         current_path = current_path.parent
-    raise FileNotFoundError(f"Could not find the project root. Ensure the 'config' or 'logs' folder exists in {str(current_path)}. The PROJECT_ROOT environement variable is: {project_root_env}")
+    raise FileNotFoundError(f"Could not find the project root within the provided path {current_path} \
+                            with the max depth of {max_depth}. \
+                            The current path is {current_path.cwd()}. \
+                            Ensure the 'config' or 'logs' folder exists in {str(current_path)}. \
+                            The PROJECT_ROOT environement variable is: {project_root_env}")
 
 
 # Initialize PROJECT_ROOT when the module is loaded
@@ -87,32 +91,67 @@ def get_service_doc_url() -> str:
     """Return the OpenAPI url"""
     return f"{get_service_url}/docs"
 
-
 def get_logging_level() -> str:
     return get_app_config().get("logging_level", os.getenv("LOGGING_LEVEL", "DEBUG")).upper()
 
+def get_redis_cluster_service_name():
+    """Reads one service name and one port from the environemnt variable.
+    For all environements BUT the DEV environment.
+    For PROD/UAT the Kubernetes Service will route the requests to any of the leaders,
+    summarized by redis-cluster-leader
+    """
+    nodes_env = os.getenv("REDIS_CLUSTER_NODES", "uat.redis.tks.sahri.local:6379")
+    return nodes_env.split(":")
 
-def get_redis_sentinel_service_name():
-    """Reads the Sentinel service name and the master name from the environment variable."""
-    sentinel_service = os.getenv("REDIS_SENTINEL_SERVICE", "redis-sentinel:26379")
-    master_name = os.getenv("REDIS_MASTER_NAME", "mymaster")
-    return sentinel_service.split(":"), master_name
+def get_redis_cluster_pw():
+    return os.getenv("REDIS_CLUSTER_PW")
 
-def get_redis_sentinel_client():
-    """Creates a redis client to access the redis through Sentinel in the current environment.
-    This could be PROD, UAT, or DEV."""
+def get_redis_cluster_client() -> RedisCluster:
+    """Creates a redis client to access the redis cluster in the current environment.
+    That could be PROD, UAT or DEV."""
+    rc: RedisCluster = None
     if get_environment().upper() == "DEV":
-        # For development environment, define your sentinel setup here.
-        sentinel_service, master_name = get_redis_sentinel_service_name()
-        sentinel = Sentinel([(sentinel_service[0], int(sentinel_service[1]))], socket_timeout=0.1)
-        return sentinel.master_for(master_name, decode_responses=True)
+        REDIS_SERVICE = os.environ.get("REDIS_SERVICE", "127.0.0.1")
+        REDIS_PORTS = os.environ.get("REDIS_PORTS", "7000,7001,7002").split(",")
+        nodes = [ClusterNode(REDIS_SERVICE, int(port)) for port in REDIS_PORTS]
+        address_remap_dict = {
+            "172.30.0.11:6379": ("127.0.0.1", 7000),
+            "172.30.0.12:6379": ("127.0.0.1", 7001),
+            "172.30.0.13:6379": ("127.0.0.1", 7002),
+        }
+
+        def address_remap(address):
+            host, port = address
+            return address_remap_dict.get(f"{host}:{port}", address)
+
+        # rc = RedisCluster(startup_nodes=nodes, decode_responses=True, skip_full_coverage_check=True)
+        rc = RedisCluster(
+            username='default',
+            password='my-password',
+            startup_nodes=nodes,
+            decode_responses=True,
+            skip_full_coverage_check=True,
+            address_remap=address_remap,
+        )
     else:
-        # For PROD/UAT (any non-DEV environment)
-        sentinel_service, master_name = get_redis_sentinel_service_name()
-        if not sentinel_service[0]:
-            raise Exception("No Redis Sentinel service defined.")
-        sentinel = Sentinel([(sentinel_service[0], int(sentinel_service[1]))], socket_timeout=0.1)
-        return sentinel.master_for(master_name, decode_responses=True)
+        # PROD/UAT (any non-DEV environment)
+        host_name, port = get_redis_cluster_service_name()
+        if not host_name:
+            raise Exception("No Redis cluster nodes in app_config file.")
+            # TODO add the error log as soon this common code is in the library.
 
-    return None
+        PW = get_redis_cluster_pw()
+        if isinstance(PW, str):
+            rc = RedisCluster(
+                host=host_name,
+                port=int(port),
+                username='default',
+                password=PW,
+                decode_responses=True,
+                require_full_coverage=False,
+                read_from_replicas=True
+            )
+        else:
+            raise ValueError("There is NO password for the Redis Cluster available with this deployment. Please see to it.")
 
+    return rc
