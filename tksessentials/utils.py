@@ -100,7 +100,10 @@ def get_redis_cluster_service_name():
     For PROD/UAT the Kubernetes Service will route the requests to any of the leaders,
     summarized by redis-cluster-leader
     """
-    nodes_env = os.getenv("REDIS_CLUSTER_NODES", "uat.redis.tks.sahri.local:6379")
+    if get_environment().upper() == "DEV" or get_environment().upper() is None:
+        nodes_env = "UNDEFINED - EMPLOYING LOCAL CLUSTER"
+    else:
+        nodes_env = os.getenv("REDIS_CLUSTER_NODES", "NODES_NOT_DEFINED")
     return nodes_env.split(":")
 
 def get_redis_cluster_pw():

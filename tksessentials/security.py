@@ -1,14 +1,14 @@
 import base64
 import json
 import os
-from faessentials.constants import DEFAULT_ENCODING
+from tksessentials.constants import DEFAULT_ENCODING
 from builtins import bytes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.backends import default_backend
 from famodels.blocked_ip import BlockedIp, BlockedIpReasonType
 from redis_om.model.model import NotFoundError
-from faessentials import global_logger, utils
+from tksessentials import global_logger, utils
 
 def get_secret_key() -> str:
     """Returns the general encryption key to encrypt data."""

@@ -1,5 +1,5 @@
 import pytest
-from faessentials.security import Crypto, IPSecurity
+from tksessentials.security import Crypto, IPSecurity
 from famodels.blocked_ip import BlockedIpReasonType
 
 AES_SECRET = "ZufDdKmoYgBv272G0DQWqz8Ng9ewM+IMGIMzkRQUoVNujiCHfdD4EULwXtn5fvwL"
