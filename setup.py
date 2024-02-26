@@ -6,9 +6,6 @@ setup(
         include=[
             "tksessentials",
             # 'tksessentials.models',
-            # 'tksessentials.models.market',
-            # 'tksessentials.models.exchange',
-            # 'tksessentials.models.db_independent'
         ],
         exclude=["tests*"],
     ),
