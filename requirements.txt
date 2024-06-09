@@ -1,10 +1,10 @@
-wheel
-setuptools
-twine
-pytest
+httpx
 pyyaml 
 cryptography  
 email-validator
-ipaddress
 #C:/Users/mcaba/source/repos/Freya Alpha/fa-models
 fa-models
+aiokafka
+wheel
+setuptools
+twine
