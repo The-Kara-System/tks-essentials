@@ -55,6 +55,9 @@ or
 pip3 install pip-autoremove
 ```
 
+### Testing
+Before running the tests, make sure that the utils.py can find the root directory. Either set the PROJECT_ROOT environement variable to the root directory, or simply create a config or a logs directory within the project root. Then run the pytests. 
+
 ### Build Library
 Prerequisite: make sure that you give your Operating System user the right to modify files in the python directory. The directory where pyhton is installed.
 Use 
@@ -65,6 +68,8 @@ Use
 In order to use your own version of the project - to maybe contribute to the library - simply clone the code from github into new directory. Then add the path of that new directory to the requirements.txt file of your project. Then change in tks-essentials whatever you recommend to improve. Don't forget the Open-Closed Principle: extend only (unless it requires a breaking change)
 
 
-## Releasing a new version
+## Releasing a new version / CICD Process
 
 This is entirely executed with Github Actions.
+
+Visual Studio Code --> GitHub Actions --> Build within Github Actions --> Uploaded by Github Actions to pypi.org.

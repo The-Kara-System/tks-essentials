@@ -2,11 +2,9 @@ wheel
 setuptools
 twine
 pytest
-redis[hiredis]
 pyyaml 
 cryptography  
 email-validator
 ipaddress
 #C:/Users/mcaba/source/repos/Freya Alpha/fa-models
 fa-models
-redis-om
