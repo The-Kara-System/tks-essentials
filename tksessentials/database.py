@@ -2,7 +2,6 @@ import json
 import os
 import random
 import socket
-from datetime import datetime
 from enum import Enum
 from typing import List
 import httpx
@@ -27,14 +26,19 @@ def get_kafka_cluster_brokers() -> List[str]:
     """Fetch the kafka broker array. This should return an array with nodes and ports.
     e.g. ['localhost:9092', 'localhost:9093']"""
     if utils.get_environment().upper() in ["DEV", None]:
-        brokers = 'localhost:9092,localhost:9093,localhost:9094'
+        kafka_broker_string: str = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
+        if kafka_broker_string == "NODES_NOT_DEFINED":
+            return ['localhost:9092']
+        else:
+            return kafka_broker_string
     else:
-        brokers = os.getenv("KAFKA_CLUSTER_BROKERS", "NODES_NOT_DEFINED")
+        brokers = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
     return brokers.split(",")
 
 
-def get_kafka_producer() -> AIOKafkaProducer:
-    """ This default producer is expecting you to send json data, which it will then automatically serialize/encode with UTF-8.
+async def get_default_kafka_producer() -> AIOKafkaProducer:
+    """ This default producer is expecting you to send json data, which it will then automatically
+        serialize/encode with UTF-8.
         The key must be a posix timestamp (int in python, BIGINT in Kafka).
         Feel free to create your own kafka producer, if these default values do no suite the use case.
     """
@@ -48,35 +52,26 @@ def get_kafka_producer() -> AIOKafkaProducer:
         else:
             return json.dumps(v).encode(DEFAULT_ENCODING)
 
-    def get_key_serializer(k: int or str) -> bytes:
-        if isinstance(k, str):
-            return k.encode(DEFAULT_ENCODING)
-        else:
-            return k.to_bytes(8, byteorder='big')
+    def get_key_serializer(k: str) -> bytes:
+        return k.encode(DEFAULT_ENCODING)
+        # if isinstance(k, str):
+        #     return k.encode(DEFAULT_ENCODING)
+        # else:
+        #     return k.to_bytes(8, byteorder='big')
 
     producer: AIOKafkaProducer = AIOKafkaProducer(
         bootstrap_servers=broker_str,
         key_serializer=lambda k: get_key_serializer(k),
         value_serializer=lambda v: get_value_serializer(v))
+    # start the producer for the client (it is often forgotten).
+    await producer.start()
     return producer
 
-
-def get_ksqldb_url(kafka_ksqldb_endpoint: KafkaKSqlDbEndPoint = KafkaKSqlDbEndPoint.KSQL) -> str:
-    if utils.get_environment().upper() in ["DEV", None]:
-        ksqldb_nodes = ["localhost:8088"]
-        return f"http://{random.choice(ksqldb_nodes)}/{kafka_ksqldb_endpoint}"
-    else:
-        # TODO: THIS SHOULD BE FETCHED FROM THE GLOBAL CONFIG-MAP FOR FA.
-        return f"http://ksqldb.sahri.local/{kafka_ksqldb_endpoint}"
-
-
-def get_kafka_consumer(topics: str, client: str = socket.gethostname(),
-                       consumer_group: str = None,
-                       offset: str = 'latest'
-                       ) -> AIOKafkaConsumer:
-    """ Will return a async-capable consumer.
+async def get_default_kafka_consumer(topics: str, client: str = socket.gethostname(), consumer_group: str = None, auto_commit: bool = True) -> AIOKafkaConsumer:
+    """ Will return an async-capable consumer.
         However, you may create your own consumer with specific settings. This is only for convenience.
         The offset could be set to 'earliest'. Default is 'latest'.
+        : param auto_commit (True): Set auto_commit to False to control the commits yourself.
     """
     brokers: List[str] = get_kafka_cluster_brokers()
     broker_str = ",".join(brokers)
@@ -86,7 +81,9 @@ def get_kafka_consumer(topics: str, client: str = socket.gethostname(),
                                                   client_id=client,
                                                   group_id=consumer_group,
                                                   key_deserializer=bytes_to_int_big_endian,
-                                                  value_deserializer=lambda v: json.loads(v.decode(DEFAULT_ENCODING)))
+                                                  value_deserializer=lambda v: json.loads(v.decode(DEFAULT_ENCODING)),
+                                                  enable_auto_commit=auto_commit)
+    await consumer.start()
     return consumer
 
 
@@ -100,8 +97,18 @@ def bytes_to_int_big_endian(key_bytes: bytes) -> int or None:
         # This might include logging an error, raising an exception, or returning a default value
         return None  # Or your preferred way to handle this case
 
+def get_ksqldb_url(kafka_ksqldb_endpoint_literal: KafkaKSqlDbEndPoint = KafkaKSqlDbEndPoint.KSQL) -> str:
+    if utils.get_environment().upper() in ["DEV", None]:
+        ksqldb_nodes: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
+        if ksqldb_nodes == "KSQLDB_NOT_DEFINED" or ksqldb_nodes == "":
+            ksqldb_nodes = ['localhost:8088']
+        return f"http://{random.choice(ksqldb_nodes)}/{kafka_ksqldb_endpoint_literal}"
+    else:
+        KSQLDB_STRING: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
+        return f"http://{KSQLDB_STRING}/{kafka_ksqldb_endpoint_literal}"
 
-async def kafka_table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT) -> bool:
+
+async def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT) -> bool:
     """Checks, if the provided table or queryable already exists."""
     ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
     response = httpx.post(ksql_url, json={"ksql": "LIST TABLES;"}, timeout=connection_time_out)
@@ -113,12 +120,12 @@ async def kafka_table_or_view_exists(name: str, connection_time_out: float = DEF
             if str.lower(table["name"]) == name:
                 return True
     else:
-        raise Exception(f'Failed to test if table or view exist in Kafka: {response.status_code}')
+        raise Exception(f'Failed to test if table or view exists in Kafka: {response.status_code}')
 
     return False
 
 
-async def kafka_execute_sql(sql: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT):
+async def execute_sql(sql: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT):
     """Executes the provided sql command."""
     logger = global_logger.setup_custom_logger("app")
 
@@ -132,17 +139,15 @@ async def kafka_execute_sql(sql: str, connection_time_out: float = DEFAULT_CONNE
         raise Exception(f"Failed to execute SQL statement: {response.status_code}. SQL: {sql}")
 
 
-async def kafka_send_message(topic_name: str,
-                             value: any,
-                             key: str = int(round(datetime.now().timestamp()))) -> None:
-    """Will send the provided message to the specified Kafka topic. The default for a key is a timestamp, which in most cases makes no sense in regards to partitioning and queries."""
+async def produce_message(topic_name: str, key: str, value: any) -> None:
+    """Will send the provided message to the specified Kafka topic and ends the producer when accomplished.."""
     logger = global_logger.setup_custom_logger("app")
-    kc = get_kafka_producer()
+    kp = await get_default_kafka_producer()
 
-    await kc.start()
+    await kp.start()
 
     try:
-        await kc.send_and_wait(topic=topic_name, key=key, value=value)
+        await kp.send_and_wait(topic=topic_name, key=key, value=value)
     except KafkaError as ke:
         error_message = f"""An error occurred when trying to send a message of type {type(object)} to the database. 
                         Error message: {ke}"""
@@ -157,4 +162,5 @@ async def kafka_send_message(topic_name: str,
         raise Exception(error_message)
     finally:
         # Wait for all pending messages to be delivered or expire.
-        await kc.stop()
+        await kp.flush()
+        await kp.stop()
