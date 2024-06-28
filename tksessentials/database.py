@@ -7,11 +7,14 @@ from typing import List
 import httpx
 import pydantic
 from aiokafka.errors import KafkaError
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 logger = global_logger.setup_custom_logger("app")
+
+class KSQLNotReadyError(Exception):
+    pass
 
 class KafkaKSqlDbEndPoint(str, Enum):
     KSQL = "ksql"
@@ -23,6 +26,7 @@ class KafkaKSqlDbEndPoint(str, Enum):
     CLUSTER_STATUS = "clusterStatus"
     IS_VALID_PROPERTY = "is_valid_property"
 
+
 def get_kafka_cluster_brokers() -> List[str]:
     """Fetch the kafka broker array. This should return an array with nodes and ports.
     e.g. ['localhost:9092', 'localhost:9093']"""
@@ -33,6 +37,7 @@ def get_kafka_cluster_brokers() -> List[str]:
         else:
             return kafka_broker_string
     else:
+        # the value of the KAFKA_BROKER_STRING is set by the global config map.
         brokers = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
     return brokers.split(",")
 
@@ -67,6 +72,7 @@ async def get_default_kafka_producer() -> AIOKafkaProducer:
     # start the producer for the client (it is often forgotten).
     await producer.start()
     return producer
+
 
 async def get_default_kafka_consumer(topics: str, client: str = socket.gethostname(), consumer_group: str = None, auto_commit: bool = True) -> AIOKafkaConsumer:
     """ Will return an async-capable consumer.
@@ -103,7 +109,7 @@ def get_ksqldb_url(kafka_ksqldb_endpoint_literal: KafkaKSqlDbEndPoint = KafkaKSq
         ksqldb_nodes: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
         if ksqldb_nodes == "KSQLDB_NOT_DEFINED" or ksqldb_nodes == "":
             ksqldb_nodes = ["http://localhost:8088"]
-        return f"{random.choice(ksqldb_nodes)}/{kafka_ksqldb_endpoint_literal}"
+        return f"{random.choice(ksqldb_nodes)}/{kafka_ksqldb_endpoint_literal}"    
     else:
         KSQLDB_STRING: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
         return f"{KSQLDB_STRING}/{kafka_ksqldb_endpoint_literal}"
@@ -114,6 +120,7 @@ def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECT
     ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
     response = httpx.post(ksql_url, json={"ksql": "LIST TABLES;"}, timeout=connection_time_out)
     logger.debug(f"Table Check Result: {response}")
+    print(f"{response.status_code}: {response.text}")
     # Check if the request was successful
     if response.status_code == 200:
         tables = response.json()[0]["tables"]
@@ -121,6 +128,9 @@ def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECT
             if str.lower(table["name"]) == str.lower(name):
                 logger.debug(f"Table {name} exists.")
                 return True
+    elif "KSQL is not yet ready to serve requests." in response.text:
+        logger.warning(f"KSQL is not ready to create the table {name}. Retrying...")
+        raise KSQLNotReadyError("KSQL is not yet ready to serve requests.")
     else:
         logger.debug(f"Table {name} does not exists.")
         raise Exception(f'Failed to test if table or view exists in Kafka: {response.status_code}')
