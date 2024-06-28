@@ -11,6 +11,7 @@ from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
+logger = global_logger.setup_custom_logger("app")
 
 class KafkaKSqlDbEndPoint(str, Enum):
     KSQL = "ksql"
@@ -108,18 +109,20 @@ def get_ksqldb_url(kafka_ksqldb_endpoint_literal: KafkaKSqlDbEndPoint = KafkaKSq
         return f"{KSQLDB_STRING}/{kafka_ksqldb_endpoint_literal}"
 
 
-async def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT) -> bool:
+def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT) -> bool:
     """Checks, if the provided table or queryable already exists."""
     ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
     response = httpx.post(ksql_url, json={"ksql": "LIST TABLES;"}, timeout=connection_time_out)
-
+    logger.debug(f"Table Check Result: {response}")
     # Check if the request was successful
     if response.status_code == 200:
         tables = response.json()[0]["tables"]
         for table in tables:
-            if str.lower(table["name"]) == name:
+            if str.lower(table["name"]) == str.lower(name):
+                logger.debug(f"Table {name} exists.")
                 return True
     else:
+        logger.debug(f"Table {name} does not exists.")
         raise Exception(f'Failed to test if table or view exists in Kafka: {response.status_code}')
 
     return False
