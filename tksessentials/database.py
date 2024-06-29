@@ -28,6 +28,24 @@ class KafkaKSqlDbEndPoint(str, Enum):
     IS_VALID_PROPERTY = "is_valid_property"
 
 
+async def is_kafka_available() -> bool:
+    """
+    Check if the Kafka brokers are available.
+
+    :param brokers: A string of Kafka brokers (e.g., 'localhost:9092')
+    :return: True if available, False otherwise
+    """
+    try:
+        BROKERS = get_kafka_cluster_brokers()
+        producer = AIOKafkaProducer(bootstrap_servers=BROKERS)
+        await producer.start()
+        await producer.stop()
+        return True
+    except Exception as e:
+        print(f"Error checking Kafka availability: {e}")
+        return False
+
+
 def get_kafka_cluster_brokers() -> List[str]:
     """Fetch the kafka broker array. This should return an array with nodes and ports.
     e.g. ['localhost:9092', 'localhost:9093']"""
@@ -105,12 +123,30 @@ def bytes_to_int_big_endian(key_bytes: bytes) -> int or None:
         # This might include logging an error, raising an exception, or returning a default value
         return None  # Or your preferred way to handle this case
 
+def is_ksqldb_available() -> bool:
+    """
+    Check if the ksqlDB server is available and running.
+
+    :param ksql_url: The URL of the ksqlDB server (e.g., 'http://localhost:8088')
+    :return: True if available, False otherwise
+    """
+    try:
+        response = httpx.get(f"{get_ksqldb_url()}/info")
+        if response.status_code == 200:
+            info = response.json()
+            if info.get('KsqlServerInfo', {}).get('serverStatus') == 'RUNNING':
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Error checking ksqlDB availability: {e}")
+        return False
+
 def get_ksqldb_url(kafka_ksqldb_endpoint_literal: KafkaKSqlDbEndPoint = KafkaKSqlDbEndPoint.KSQL) -> str:
     if utils.get_environment().upper() in ["DEV", None]:
         ksqldb_nodes: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
         if ksqldb_nodes == "KSQLDB_NOT_DEFINED" or ksqldb_nodes == "":
             ksqldb_nodes = ["http://localhost:8088"]
-        return f"{random.choice(ksqldb_nodes)}/{kafka_ksqldb_endpoint_literal}"    
+        return f"{random.choice(ksqldb_nodes)}/{kafka_ksqldb_endpoint_literal}"
     else:
         KSQLDB_STRING: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
         return f"{KSQLDB_STRING}/{kafka_ksqldb_endpoint_literal}"

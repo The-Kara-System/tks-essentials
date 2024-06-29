@@ -11,3 +11,4 @@ twine
 
 # Testing
 pytest==8.2.0
+responses
