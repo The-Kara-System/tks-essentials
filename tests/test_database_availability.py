@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import patch, Mock
-import httpx
 
 from tksessentials.database import is_ksqldb_available
 
