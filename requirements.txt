@@ -3,8 +3,6 @@ cryptography==42.0.5
 email-validator==2.1.1
 httpx==0.27.0
 pyyaml==6.0.1
-#C:/Users/mcaba/source/repos/Freya Alpha/fa-models
-fa-models
 wheel
 setuptools==58.1.0
 twine
