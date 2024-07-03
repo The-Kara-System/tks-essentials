@@ -9,7 +9,9 @@ from typing import List
 import httpx
 import pydantic
 from aiokafka.errors import KafkaError
+from kafka.errors import TopicAlreadyExistsError
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from kafka.admin import KafkaAdminClient, NewTopic
 from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
 
@@ -66,6 +68,31 @@ async def topic_exists(topic_name):
         return topic_name in await consumer.topics()
     finally:
         await consumer.stop()
+
+async def create_topic(topic_name: str, num_partitions: int = 3, num_replicas: int = 1) -> None:
+    """Creates a Kafka topic with the given name, number of partitions, and number of replicas."""
+    if await topic_exists(topic_name):
+        logger.info(f"Topic {topic_name} already exists, skipping creation.")
+        return
+    brokers = get_kafka_cluster_brokers()
+    admin_client = KafkaAdminClient(bootstrap_servers=brokers)
+    try:
+        topic_list = [
+            NewTopic(
+                name=topic_name,
+                num_partitions=num_partitions,
+                replication_factor=num_replicas
+            )
+        ]
+        admin_client.create_topics(new_topics=topic_list, validate_only=False)
+        logger.info(f"Successfully created topic '{topic_name}' with {num_partitions} partitions and {num_replicas} replicas.")
+    except TopicAlreadyExistsError:
+        logger.info(f"Topic '{topic_name}' already exists.")
+    except Exception as e:
+        logger.error(f"Failed to create topic '{topic_name}': {e}")
+        raise
+    finally:
+        admin_client.close()
 
 async def get_default_kafka_producer() -> AIOKafkaProducer:
     """ This default producer is expecting you to send json data, which it will then automatically
@@ -137,7 +164,7 @@ def is_ksqldb_available() -> bool:
     :return: True if available, False otherwise
     """
     try:
-        response = httpx.get(f"{get_ksqldb_url()}/info")
+        response = httpx.get(f"{get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)}")
         if response.status_code == 200:
             info = response.json()
             if info.get('KsqlServerInfo', {}).get('serverStatus') == 'RUNNING':

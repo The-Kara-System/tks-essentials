@@ -1,10 +1,13 @@
 import time
-
 import pytest
 from tksessentials import database, utils
 from tksessentials.database import KSQLNotReadyError
 from unittest.mock import patch
 import httpx
+import asyncio
+from kafka.admin import KafkaAdminClient, NewTopic
+from kafka import KafkaConsumer
+from kafka.errors import TopicAlreadyExistsError
 
 @pytest.fixture(scope="module")
 def setup():
@@ -279,3 +282,50 @@ async def test_create_stream():
         except Exception as e:
             print(f"Test failed with an unexpected error: {e}")
             raise
+
+@pytest.mark.asyncio
+async def test_create_topic_when_not_exists():
+    TOPIC_NAME = "test_topic_not_exists"
+    brokers = database.get_kafka_cluster_brokers()
+    # Ensure the topic does not exist before creating it.
+    admin_client = KafkaAdminClient(bootstrap_servers=brokers)
+    try:
+        admin_client.delete_topics([TOPIC_NAME])
+    except Exception as e:
+        # Ignore if topic does not exist.
+        pass
+    # Test topic creation
+    await database.create_topic(TOPIC_NAME, num_partitions=1, num_replicas=1)
+    # Verify that the topic was created.
+    consumer = KafkaConsumer(bootstrap_servers=brokers)
+    assert TOPIC_NAME in consumer.topics()
+    # Clean up the topic after the test.
+    admin_client.delete_topics([TOPIC_NAME])
+    admin_client.close()
+
+@pytest.mark.asyncio
+async def test_create_topic_when_exists():
+    TOPIC_NAME = "test_topic_exists"
+    brokers = database.get_kafka_cluster_brokers()
+    # Ensure the topic exists before testing.
+    admin_client = KafkaAdminClient(bootstrap_servers=brokers)
+    topic_list = [
+        NewTopic(
+            name=TOPIC_NAME,
+            num_partitions=1,
+            replication_factor=1
+        )
+    ]
+    try:
+        admin_client.create_topics(new_topics=topic_list, validate_only=False)
+    except Exception as e:
+        # Ignore if topic already exists.
+        pass
+    # Test handling of existing topic.
+    await database.create_topic(TOPIC_NAME, num_partitions=1, num_replicas=1)
+    # Verify that the topic still exists.
+    consumer = KafkaConsumer(bootstrap_servers=brokers)
+    assert TOPIC_NAME in consumer.topics()
+    # Clean up the topic after the test.
+    admin_client.delete_topics([TOPIC_NAME])
+    admin_client.close()
