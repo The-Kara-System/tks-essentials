@@ -69,31 +69,6 @@ async def topic_exists(topic_name):
     finally:
         await consumer.stop()
 
-async def create_topic(topic_name: str, num_partitions: int = 3, num_replicas: int = 1) -> None:
-    """Creates a Kafka topic with the given name, number of partitions, and number of replicas."""
-    if await topic_exists(topic_name):
-        logger.info(f"Topic {topic_name} already exists, skipping creation.")
-        return
-    brokers = get_kafka_cluster_brokers()
-    admin_client = KafkaAdminClient(bootstrap_servers=brokers)
-    try:
-        topic_list = [
-            NewTopic(
-                name=topic_name,
-                num_partitions=num_partitions,
-                replication_factor=num_replicas
-            )
-        ]
-        admin_client.create_topics(new_topics=topic_list, validate_only=False)
-        logger.info(f"Successfully created topic '{topic_name}' with {num_partitions} partitions and {num_replicas} replicas.")
-    except TopicAlreadyExistsError:
-        logger.info(f"Topic '{topic_name}' already exists.")
-    except Exception as e:
-        logger.error(f"Failed to create topic '{topic_name}': {e}")
-        raise
-    finally:
-        admin_client.close()
-
 async def get_default_kafka_producer() -> AIOKafkaProducer:
     """ This default producer is expecting you to send json data, which it will then automatically
         serialize/encode with UTF-8.
