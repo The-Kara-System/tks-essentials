@@ -8,9 +8,7 @@ from typing import List
 import httpx
 import pydantic
 from aiokafka.errors import KafkaError
-from kafka.errors import TopicAlreadyExistsError
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from kafka.admin import KafkaAdminClient, NewTopic
 from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
 
