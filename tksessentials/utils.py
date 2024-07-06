@@ -1,6 +1,7 @@
 import os
 import pathlib
 from pathlib import Path
+import socket
 import yaml
 
 PROJECT_ROOT = None
@@ -10,27 +11,25 @@ def find_project_root(current_path: pathlib.Path, max_depth: int = 10) -> pathli
     """
     Recursively search for a marker (like the 'config' or 'logs' directory) to find the project root.
     """
-
     # Check if PROJECT_ROOT environment variable is set
     project_root_env = os.getenv('PROJECT_ROOT')
     if project_root_env:
         return pathlib.Path(project_root_env)
 
     for _ in range(max_depth):
-        if (current_path.cwd() / "config").exists() or (current_path.cwd() / "logs").exists():
-            return current_path.cwd()
+        if (current_path / "config").exists() or (current_path / "logs").exists():
+            return current_path
         current_path = current_path.parent
     raise FileNotFoundError(f"Could not find the project root within the provided path {current_path} \
                             with the max depth of {max_depth}. \
-                            The current path is {current_path.cwd()}. \
+                            The current path is {current_path}. \
                             Ensure the 'config' or 'logs' folder exists in {str(current_path)}. \
-                            The PROJECT_ROOT environement variable is: {project_root_env}")
-
+                            The PROJECT_ROOT environment variable is: {project_root_env}")
 
 # Initialize PROJECT_ROOT when the module is loaded
 def initialize_project_root():
     global PROJECT_ROOT
-    PROJECT_ROOT = find_project_root(pathlib.Path(__file__).resolve())
+    PROJECT_ROOT = find_project_root(pathlib.Path(os.path.abspath(os.path.dirname(__file__))).resolve())
 
 initialize_project_root()
 
@@ -56,7 +55,7 @@ def get_secrets_path() -> Path:
 def get_app_config() -> dict:
     app_cfg = None
     try:
-        project_root = find_project_root(pathlib.Path(__file__).resolve())
+        project_root = find_project_root(pathlib.Path(os.getcwd()).resolve())
         config_path = project_root.joinpath("config/app_config.yaml")
         with open(config_path, "r") as ymlfile:
             app_cfg = yaml.safe_load(ymlfile)
@@ -66,11 +65,22 @@ def get_app_config() -> dict:
         )
     return app_cfg
 
+def get_pod_name() -> str:
+    """Returns the environment variable POD_NAME, which is the K8s' pod name. If this variable is not set,
+    the hostname will be returned."""
+    return os.getenv("POD_NAME", socket.gethostname())
+
 def get_application_name() -> str:
     app_name = get_app_config().get("application")
     if app_name is None:
         raise ValueError("Application name not found in app_config.")
     return app_name
+
+def get_application_identifier() -> str:
+    """This function return a string of domain and application.
+    It is NOT unique for every pod instance. Thus is does NOT have a pod instance id or any unique identifier 
+    within a runtime."""
+    return f"{get_domain_name()}_{get_application_name()}"
 
 def get_domain_name() -> str:
     domain_name = get_app_config().get("domain")
