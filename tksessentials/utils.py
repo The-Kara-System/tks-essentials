@@ -78,7 +78,7 @@ def get_application_name() -> str:
 
 def get_application_identifier() -> str:
     """This function return a string of domain and application.
-    It is NOT unique for every pod instance. Thus is does NOT have a pod instance id or any unique identifier 
+    It is NOT unique for every pod instance. Thus is does NOT have a pod instance id or any unique identifier
     within a runtime."""
     return f"{get_domain_name()}_{get_application_name()}"
 
