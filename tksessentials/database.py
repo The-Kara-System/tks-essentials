@@ -9,7 +9,9 @@ from typing import List
 import httpx
 import pydantic
 from aiokafka.errors import KafkaError
+from kafka.errors import TopicAlreadyExistsError
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from kafka.admin import KafkaAdminClient, NewTopic
 from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
 
@@ -137,7 +139,7 @@ def is_ksqldb_available() -> bool:
     :return: True if available, False otherwise
     """
     try:
-        response = httpx.get(f"{get_ksqldb_url()}/info")
+        response = httpx.get(f"{get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)}")
         if response.status_code == 200:
             info = response.json()
             if info.get('KsqlServerInfo', {}).get('serverStatus') == 'RUNNING':
@@ -247,6 +249,69 @@ async def create_table(sql_statement: str, table_name: str):
 
     logger.error(f"Timed out waiting for table {table_name} to be created.")
     raise TimeoutError(f"Timed out waiting for table {table_name} to be created.")
+
+def stream_exists(name: str, connection_time_out: float = 60.0) -> bool:
+    """Checks, if the provided table or queryable already exists."""
+    ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
+    response = httpx.post(ksql_url, json={"ksql": "LIST STREAMS;"}, timeout=connection_time_out)
+    logger.debug(f"Stream Check Result: {response}")
+    print(f"{response.status_code}: {response.text}")
+    # Check if the request was successful
+    if response.status_code == 200:
+        streams = response.json()[0]["streams"]
+        for stream in streams:
+            if str.lower(stream["name"]) == str.lower(name):
+                logger.debug(f"Stream {name} exists.")
+                return True
+    elif "KSQL is not yet ready to serve requests." in response.text:
+        logger.warning(f"KSQL is not ready to create the stream {name}. Retrying...")
+        raise KSQLNotReadyError("KSQL is not yet ready to serve requests.")
+    else:
+        logger.debug(f"Stream {name} does not exists.")
+        raise Exception(f'Failed to test if stream exists in Kafka: {response.status_code}')
+
+    return False
+
+async def create_stream(sql_statement: str, stream_name: str):
+    """The invocation of this function will retry endlessly if the httpx.RemoteProtocolError or httpx.ConnectError occures. This implies, that the cluster is not yet ready and thus we need to retry.
+    For all other exceptions, we retry for 60 seconds (every 5 seconds).    
+    """
+    sql_statement = clean_sql_statement(sql_statement)
+    sql_statement = await prepare_sql_statement(sql_statement)
+
+    headers = {"Content-Type": "application/json"}
+    response = httpx.post(f"{get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)}", json={"ksql": sql_statement}, headers=headers, timeout=30)
+
+    if response.status_code == 200:
+        logger.info(f"Successfully created stream {stream_name}.")
+    else:
+        if "A stream with the same name already exists" in response.text:
+            logger.info(f"Stream {stream_name} already exists. Skipping creation.")
+            return
+        elif "KSQL is not yet ready to serve requests." in response.text:
+            logger.warning(f"KSQL is not ready to create the stream {stream_name}. Retrying...")
+            raise KSQLNotReadyError("KSQL is not yet ready to serve requests.")
+        else:
+            error_msg = f"Failed to create stream {stream_name}: {response.text}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+
+    # Wait until the table is created
+    max_wait_time = 60  # seconds
+    poll_interval = 5  # seconds
+    elapsed_time = 0
+
+    while elapsed_time < max_wait_time:
+        if stream_exists(stream_name):
+            logger.info(f"Stream {stream_name} is now available.")
+            return
+        else:
+            logger.debug(f"Stream {stream_name} is not yet available. Waiting...")
+            await asyncio.sleep(poll_interval)
+            elapsed_time += poll_interval
+
+    logger.error(f"Timed out waiting for stream {stream_name} to be created.")
+    raise TimeoutError(f"Timed out waiting for stream {stream_name} to be created.")
 
 async def execute_sql(sql: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT):
     """Executes the provided sql command. To create tables, use the create_table function instead."""
