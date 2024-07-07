@@ -4,10 +4,6 @@ from tksessentials import database, utils
 from tksessentials.database import KSQLNotReadyError
 from unittest.mock import patch
 import httpx
-import asyncio
-from kafka.admin import KafkaAdminClient, NewTopic
-from kafka import KafkaConsumer
-from kafka.errors import TopicAlreadyExistsError
 
 @pytest.fixture(scope="module")
 def setup():
