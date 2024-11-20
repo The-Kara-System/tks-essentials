@@ -180,7 +180,7 @@ def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECT
     """Checks, if the provided table or queryable already exists."""
     ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
     response = httpx.post(ksql_url, json={"ksql": "LIST TABLES;"}, timeout=connection_time_out)
-    logger.debug(f"Table Check Result: {response.status_code}: {response.text}")
+    # logger.debug(f"Table Check Result: {response.status_code}: {response.text}")
     # Check if the request was successful
     if response.status_code == 200:
         tables = response.json()[0]["tables"]
@@ -270,8 +270,8 @@ def stream_exists(name: str, connection_time_out: float = 60.0) -> bool:
     """Checks, if the provided table or queryable already exists."""
     ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
     response = httpx.post(ksql_url, json={"ksql": "LIST STREAMS;"}, timeout=connection_time_out)
-    logger.debug(f"Stream Check Result: {response}")
-    print(f"{response.status_code}: {response.text}")
+    # logger.debug(f"Stream Check Result: {response}")
+    # logger.info(f"{response.status_code}: {response.text}")
     # Check if the request was successful
     if response.status_code == 200:
         streams = response.json()[0]["streams"]
