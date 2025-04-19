@@ -229,9 +229,11 @@ async def create_table(sql_statement: str, table_name: str):
     """The invocation of this function will retry endlessly if the httpx.RemoteProtocolError or httpx.ConnectError occures. This implies, that the cluster is not yet ready and thus we need to retry.
     For all other exceptions, we retry for 60 seconds (every 5 seconds).    
     """
+    logger.info(f"Attempting to create table {table_name} with SQL statement {sql_statement}.")
     sql_statement = clean_sql_statement(sql_statement)
+    logger.info(f"Cleaned SQL statement: {sql_statement}")
     sql_statement = await prepare_sql_statement(sql_statement)
-
+    logger.info(f"Prepared SQL statement: {sql_statement}")
     headers = {"Content-Type": "application/json"}
     response = httpx.post(f"{get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)}", json={"ksql": sql_statement}, headers=headers, timeout=30)
 
@@ -292,9 +294,11 @@ async def create_stream(sql_statement: str, stream_name: str):
     """The invocation of this function will retry endlessly if the httpx.RemoteProtocolError or httpx.ConnectError occures. This implies, that the cluster is not yet ready and thus we need to retry.
     For all other exceptions, we retry for 60 seconds (every 5 seconds).    
     """
+    logger.info(f"Attempting to create stream {stream_name} with SQL statement {sql_statement}.")
     sql_statement = clean_sql_statement(sql_statement)
+    logger.info(f"Cleaned SQL statement: {sql_statement}")
     sql_statement = await prepare_sql_statement(sql_statement)
-
+    logger.info(f"Prepared SQL statement: {sql_statement}")
     headers = {"Content-Type": "application/json"}
     response = httpx.post(f"{get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)}", json={"ksql": sql_statement}, headers=headers, timeout=30)
 
