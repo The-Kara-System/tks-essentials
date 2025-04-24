@@ -171,10 +171,10 @@ def get_ksqldb_url(kafka_ksqldb_endpoint_literal: KafkaKSqlDbEndPoint = KafkaKSq
         ksqldb_nodes: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
         if ksqldb_nodes == "KSQLDB_NOT_DEFINED" or ksqldb_nodes == "":
             ksqldb_nodes = ["http://localhost:8088"]
-        return f"{random.choice(ksqldb_nodes)}/{kafka_ksqldb_endpoint_literal}"
+        return f"{random.choice(ksqldb_nodes)}/{kafka_ksqldb_endpoint_literal.value}"
     else:
         KSQLDB_STRING: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
-        return f"{KSQLDB_STRING}/{kafka_ksqldb_endpoint_literal}"
+        return f"{KSQLDB_STRING}/{kafka_ksqldb_endpoint_literal.value}"
 
 def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT) -> bool:
     """Checks, if the provided table or queryable already exists."""
