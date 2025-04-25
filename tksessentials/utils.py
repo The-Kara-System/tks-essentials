@@ -74,7 +74,8 @@ def get_application_name() -> str:
     app_name = get_app_config().get("application")
     if app_name is None:
         raise ValueError("Application name not found in app_config.")
-    return app_name
+    # replace all hyphens with underscores
+    return app_name.replace("-", "_")
 
 def get_application_identifier() -> str:
     """This function return a string of domain and application.
@@ -86,7 +87,8 @@ def get_domain_name() -> str:
     domain_name = get_app_config().get("domain")
     if domain_name is None:
         raise ValueError("Domain name not found in app_config.")
-    return domain_name
+    # replace all hyphens with underscores
+    return domain_name.replace("-", "_")
 
 def get_environment() -> str:
     """Will fetch the environment variable ENV. If not present it will fall back to DEV """
