@@ -40,6 +40,7 @@ services:
       KSQL_BOOTSTRAP_SERVERS: kafka1:29092
       KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
       KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+      KSQL_KSQL_ENDPOINT_HTTP_PATH: /ksql   # <<< ADDED THIS LINE
 
 networks:
   local-kafka-network:
