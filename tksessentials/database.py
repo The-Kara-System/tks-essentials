@@ -11,7 +11,7 @@ from aiokafka.errors import KafkaError
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
-from confluent_kafka.admin import AdminClient, ConfigResource, RESOURCE_TOPIC, NewTopic
+# from confluent_kafka.admin import AdminClient, ConfigResource, RESOURCE_TOPIC, NewTopic
 from typing import Dict
 
 
@@ -369,105 +369,105 @@ async def produce_message(topic_name: str, key: str, value: any) -> None:
         await kp.flush()
         await kp.stop()
 
-async def check_availability_with_retry(check_functions, max_wait_time=None, poll_interval=5):
-        """Checks the availability of services with retry logic.
+# async def check_availability_with_retry(check_functions, max_wait_time=None, poll_interval=5):
+#         """Checks the availability of services with retry logic.
 
-        Args:
-            check_functions (list): List of functions to check service availability.
-                                    The functions can be a mix of async and sync functions.
-            max_wait_time (int or None): Maximum wait time in seconds. If None, wait indefinitely.
-            poll_interval (int): Poll interval in seconds.
+#         Args:
+#             check_functions (list): List of functions to check service availability.
+#                                     The functions can be a mix of async and sync functions.
+#             max_wait_time (int or None): Maximum wait time in seconds. If None, wait indefinitely.
+#             poll_interval (int): Poll interval in seconds.
 
-        Raises:
-            TimeoutError: If services are not available within the max wait time.
-        """
-        elapsed_time = 0
+#         Raises:
+#             TimeoutError: If services are not available within the max wait time.
+#         """
+#         elapsed_time = 0
 
-        while max_wait_time is None or elapsed_time < max_wait_time:
-            checks = []
-            for check in check_functions:
-                try:
-                    if asyncio.iscoroutinefunction(check):
-                        # If the function is async, await it
-                        result = await check()
-                    else:
-                        # If the function is sync, call it directly
-                        result = check()
+#         while max_wait_time is None or elapsed_time < max_wait_time:
+#             checks = []
+#             for check in check_functions:
+#                 try:
+#                     if asyncio.iscoroutinefunction(check):
+#                         # If the function is async, await it
+#                         result = await check()
+#                     else:
+#                         # If the function is sync, call it directly
+#                         result = check()
                     
-                    # Log the result of each check
-                    if check.__name__ == 'is_kafka_available':
-                        if result:
-                            logger.info("Kafka is available.")
-                        else:
-                            logger.info("Kafka is not available.")
-                    elif check.__name__ == 'is_ksqldb_available':
-                        if result:
-                            logger.info("ksqlDB is available.")
-                        else:
-                            logger.info("ksqlDB is not available.")
+#                     # Log the result of each check
+#                     if check.__name__ == 'is_kafka_available':
+#                         if result:
+#                             logger.info("Kafka is available.")
+#                         else:
+#                             logger.info("Kafka is not available.")
+#                     elif check.__name__ == 'is_ksqldb_available':
+#                         if result:
+#                             logger.info("ksqlDB is available.")
+#                         else:
+#                             logger.info("ksqlDB is not available.")
                     
-                    checks.append(result)
-                except Exception as e:
-                    if check.__name__ == 'is_kafka_available':
-                        logger.error(f"Error checking Kafka availability: {e}")
-                        logger.info("Kafka is not available.")
-                        checks.append(False)
-                    elif check.__name__ == 'is_ksqldb_available':
-                        logger.error(f"Error checking ksqlDB availability: {e}")
-                        logger.info("ksqlDB is not available.")
-                        checks.append(False)
+#                     checks.append(result)
+#                 except Exception as e:
+#                     if check.__name__ == 'is_kafka_available':
+#                         logger.error(f"Error checking Kafka availability: {e}")
+#                         logger.info("Kafka is not available.")
+#                         checks.append(False)
+#                     elif check.__name__ == 'is_ksqldb_available':
+#                         logger.error(f"Error checking ksqlDB availability: {e}")
+#                         logger.info("ksqlDB is not available.")
+#                         checks.append(False)
 
-            if all(checks):
-                logger.info("All services are available. Proceeding...")
-                return True
-            else:
-                logger.info("One or more services are not available. Retrying...")
-                await asyncio.sleep(poll_interval)
-                elapsed_time += poll_interval
+#             if all(checks):
+#                 logger.info("All services are available. Proceeding...")
+#                 return True
+#             else:
+#                 logger.info("One or more services are not available. Retrying...")
+#                 await asyncio.sleep(poll_interval)
+#                 elapsed_time += poll_interval
 
-        logger.error("Timed out waiting for services to be available.")
-        raise TimeoutError("Timed out waiting for services to be available.")
+#         logger.error("Timed out waiting for services to be available.")
+#         raise TimeoutError("Timed out waiting for services to be available.")
 
-async def execute_with_retries(sql_task, retries=None, delay=20):
-    attempt = 0
-    while retries is None or attempt < retries:
-        try:
-            await sql_task()  # Execute the task directly
-            return
-        except Exception as e:
-            logger.info(f"Failed to execute SQL statement (attempt {attempt + 1}): {e}")
-            if retries is None or attempt < retries - 1:
-                logger.info(f"Retrying in {delay} seconds...")
-                await asyncio.sleep(delay)
-                attempt += 1
-            else:
-                break  # Exceeded max retries
+# async def execute_with_retries(sql_task, retries=None, delay=20):
+#     attempt = 0
+#     while retries is None or attempt < retries:
+#         try:
+#             await sql_task()  # Execute the task directly
+#             return
+#         except Exception as e:
+#             logger.info(f"Failed to execute SQL statement (attempt {attempt + 1}): {e}")
+#             if retries is None or attempt < retries - 1:
+#                 logger.info(f"Retrying in {delay} seconds...")
+#                 await asyncio.sleep(delay)
+#                 attempt += 1
+#             else:
+#                 break  # Exceeded max retries
 
-    raise Exception(f"Failed to execute SQL after {attempt} attempts: {sql_task}")
+#     raise Exception(f"Failed to execute SQL after {attempt} attempts: {sql_task}")
 
-async def create_topic(topic_name: str, partitions: int = 6, replication_factor: int = 3):
-        """Create a Kafka topic if it does not exist."""
-        brokers = get_kafka_cluster_brokers()
-        admin_client = AdminClient({'bootstrap.servers': ",".join(brokers)})
-        # Check if topic already exists
-        topic_metadata = admin_client.list_topics(timeout=10)
-        if topic_name in topic_metadata.topics:
-            logger.info(f"Topic '{topic_name}' already exists.")
-            return
-        # Create a new topic
-        new_topic = NewTopic(topic=topic_name, num_partitions=partitions, replication_factor=replication_factor)
-        try:
-            fs = admin_client.create_topics([new_topic])
-            for topic, f in fs.items():
-                try:
-                    f.result()  # The result itself is None if successful
-                    logger.info(f"Topic '{topic}' created successfully.")
-                except Exception as e:
-                    if "TOPIC_ALREADY_EXISTS" in str(e):
-                        logger.info(f"Topic '{topic_name}' already exists.")
-                    else:
-                        logger.error(f"Failed to create topic '{topic_name}': {e}")
-                        raise
-        except Exception as e:
-            logger.error(f"Failed to create topic '{topic_name}': {e}")
-            raise
+# async def create_topic(topic_name: str, partitions: int = 6, replication_factor: int = 3):
+#         """Create a Kafka topic if it does not exist."""
+#         brokers = get_kafka_cluster_brokers()
+#         admin_client = AdminClient({'bootstrap.servers': ",".join(brokers)})
+#         # Check if topic already exists
+#         topic_metadata = admin_client.list_topics(timeout=10)
+#         if topic_name in topic_metadata.topics:
+#             logger.info(f"Topic '{topic_name}' already exists.")
+#             return
+#         # Create a new topic
+#         new_topic = NewTopic(topic=topic_name, num_partitions=partitions, replication_factor=replication_factor)
+#         try:
+#             fs = admin_client.create_topics([new_topic])
+#             for topic, f in fs.items():
+#                 try:
+#                     f.result()  # The result itself is None if successful
+#                     logger.info(f"Topic '{topic}' created successfully.")
+#                 except Exception as e:
+#                     if "TOPIC_ALREADY_EXISTS" in str(e):
+#                         logger.info(f"Topic '{topic_name}' already exists.")
+#                     else:
+#                         logger.error(f"Failed to create topic '{topic_name}': {e}")
+#                         raise
+#         except Exception as e:
+#             logger.error(f"Failed to create topic '{topic_name}': {e}")
+#             raise
