@@ -1,4 +1,3 @@
-# Create the network first: docker network create local-kafka-network
 version: '3'
 services:
   kafka1:
@@ -7,6 +6,8 @@ services:
     hostname: kafka1
     ports:
       - "9092:9092"
+    networks:
+      - local-kafka-network
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
@@ -31,6 +32,8 @@ services:
       - kafka1
     ports:
       - "8088:8088"
+    networks:
+      - local-kafka-network
     environment:
       KSQL_KSQL_SERVICE_ID: KSQL_SERVICE_FREYA_ALPHA_
       KSQL_LISTENERS: http://0.0.0.0:8088
@@ -38,6 +41,6 @@ services:
       KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
       KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
 
-networks:    
-  local-kafka-network:  
+networks:
+  local-kafka-network:
     external: true
