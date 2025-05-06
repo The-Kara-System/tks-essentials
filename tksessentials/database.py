@@ -448,28 +448,28 @@ async def execute_with_retries(sql_task, retries=None, delay=20):
     raise Exception(f"Failed to execute SQL after {attempt} attempts: {sql_task}")
 
 async def create_topic(topic_name: str, partitions: int = 6, replication_factor: int = 3):
-        """Create a Kafka topic if it does not exist."""
-        brokers = get_kafka_cluster_brokers()
-        admin_client = AdminClient({'bootstrap.servers': ",".join(brokers)})
-        # Check if topic already exists
-        topic_metadata = admin_client.list_topics(timeout=10)
-        if topic_name in topic_metadata.topics:
-            logger.info(f"Topic '{topic_name}' already exists.")
-            return
-        # Create a new topic
-        new_topic = NewTopic(topic=topic_name, num_partitions=partitions, replication_factor=replication_factor)
-        try:
-            fs = admin_client.create_topics([new_topic])
-            for topic, f in fs.items():
-                try:
-                    f.result()  # The result itself is None if successful
-                    logger.info(f"Topic '{topic}' created successfully.")
-                except Exception as e:
-                    if "TOPIC_ALREADY_EXISTS" in str(e):
-                        logger.info(f"Topic '{topic_name}' already exists.")
-                    else:
-                        logger.error(f"Failed to create topic '{topic_name}': {e}")
-                        raise
-        except Exception as e:
-            logger.error(f"Failed to create topic '{topic_name}': {e}")
-            raise
+    """Create a Kafka topic if it does not exist."""
+    brokers = get_kafka_cluster_brokers()
+    admin_client = AdminClient({'bootstrap.servers': ",".join(brokers)})
+    # Check if topic already exists
+    topic_metadata = admin_client.list_topics(timeout=10)
+    if topic_name in topic_metadata.topics:
+        logger.info(f"Topic '{topic_name}' already exists.")
+        return
+    # Create a new topic
+    new_topic = NewTopic(topic=topic_name, num_partitions=partitions, replication_factor=replication_factor)
+    try:
+        fs = admin_client.create_topics([new_topic])
+        for topic, f in fs.items():
+            try:
+                f.result()  # The result itself is None if successful
+                logger.info(f"Topic '{topic}' created successfully.")
+            except Exception as e:
+                if "TOPIC_ALREADY_EXISTS" in str(e):
+                    logger.info(f"Topic '{topic_name}' already exists.")
+                else:
+                    logger.error(f"Failed to create topic '{topic_name}': {e}")
+                    raise
+    except Exception as e:
+        logger.error(f"Failed to create topic '{topic_name}': {e}")
+        raise
