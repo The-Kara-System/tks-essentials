@@ -1,7 +1,7 @@
 # pyproject.toml
 
 [build-system]
-requires      = ["setuptools>=66.1.0", "wheel"]
+requires      = ["setuptools>=66.1.0", "wheel", "confluent-kafka"]
 build-backend = "setuptools.build_meta"
 
 [project]
