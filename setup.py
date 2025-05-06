@@ -11,12 +11,12 @@ setup(
     ),
     install_requires=[
         "confluent-kafka>=2.4.0",
-        "aiokafka==0.10.0",
-        "kafka_python==2.0.2",
-        "cryptography==42.0.5",
-        "email-validator==2.1.1",
-        "httpx==0.27.0",
-        "pyyaml==6.0.1",
+        "aiokafka>=0.10.0",
+        "kafka_python>=2.0.2",
+        "cryptography>=42.0.5",
+        "email-validator>=2.1.1",
+        "httpx>=0.27.0",
+        "pyyaml>=6.0.1",
     ]
     # packages=['tksessentials'],
     # package_dir={'tksessentials':'src'}
