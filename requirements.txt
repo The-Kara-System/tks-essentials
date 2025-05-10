@@ -9,4 +9,3 @@ pydantic==2.7.1
 wheel
 setuptools==58.1.0
 twine
-confluent-kafka==2.4.0
