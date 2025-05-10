@@ -7,12 +7,11 @@ from enum import Enum
 from typing import List
 import httpx
 import pydantic
-from aiokafka.errors import KafkaError
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+from aiokafka.errors import TopicAlreadyExistsError, KafkaError
 from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
-from confluent_kafka.admin import AdminClient, ConfigResource, RESOURCE_TOPIC, NewTopic
-from typing import Dict
 
 
 logger = global_logger.setup_custom_logger("app")
@@ -448,28 +447,27 @@ async def execute_with_retries(sql_task, retries=None, delay=20):
     raise Exception(f"Failed to execute SQL after {attempt} attempts: {sql_task}")
 
 async def create_topic(topic_name: str, partitions: int = 6, replication_factor: int = 3):
-    """Create a Kafka topic if it does not exist."""
+    """Create a Kafka topic if it does not exist, using aiokafka’s async admin API."""
     brokers = get_kafka_cluster_brokers()
-    admin_client = AdminClient({'bootstrap.servers': ",".join(brokers)})
-    # Check if topic already exists
-    topic_metadata = admin_client.list_topics(timeout=10)
-    if topic_name in topic_metadata.topics:
-        logger.info(f"Topic '{topic_name}' already exists.")
-        return
-    # Create a new topic
-    new_topic = NewTopic(topic=topic_name, num_partitions=partitions, replication_factor=replication_factor)
+    admin = AIOKafkaAdminClient(bootstrap_servers=",".join(brokers))
+    # 1. Bootstrap metadata (must do this before calling create_topics) 
+    await admin.start()  # :contentReference[oaicite:2]{index=2}
     try:
-        fs = admin_client.create_topics([new_topic])
-        for topic, f in fs.items():
-            try:
-                f.result()  # The result itself is None if successful
-                logger.info(f"Topic '{topic}' created successfully.")
-            except Exception as e:
-                if "TOPIC_ALREADY_EXISTS" in str(e):
-                    logger.info(f"Topic '{topic_name}' already exists.")
-                else:
-                    logger.error(f"Failed to create topic '{topic_name}': {e}")
-                    raise
-    except Exception as e:
+        # 2. Define topic spec
+        new_topic = NewTopic(
+            name=topic_name,
+            num_partitions=partitions,
+            replication_factor=replication_factor,
+        )
+        # 3. Create it (raises TopicAlreadyExistsError if already there)
+        await admin.create_topics(new_topics=[new_topic], validate_only=False)
+        logger.info(f"Topic '{topic_name}' created successfully.")
+    except TopicAlreadyExistsError:
+        logger.info(f"Topic '{topic_name}' already exists.")
+    except KafkaError as e:
+        # any other Kafka‐level error
         logger.error(f"Failed to create topic '{topic_name}': {e}")
         raise
+    finally:
+        # 4. Clean up the admin client
+        await admin.close()
