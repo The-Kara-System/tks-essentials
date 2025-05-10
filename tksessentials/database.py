@@ -8,7 +8,7 @@ from typing import List
 import httpx
 import pydantic
 from aiokafka.errors import KafkaError
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, AIOKafkaAdminClient
 from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
 from confluent_kafka.admin import AdminClient, ConfigResource, RESOURCE_TOPIC, NewTopic
