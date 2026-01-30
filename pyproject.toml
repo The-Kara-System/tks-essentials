@@ -39,7 +39,8 @@ dev = [
     "bumpver",
     "isort",
     "pip-tools",
-    "pytest"
+    "pytest",
+    "pytest-asyncio"
 ]
 
 [project.urls]
