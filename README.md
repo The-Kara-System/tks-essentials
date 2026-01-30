@@ -7,36 +7,39 @@ The Kára System,
 Spark & Hale Robotic Industries
 
 ## General
-Run and compiled for Python 3.12.9.
-Expected to run for Python 3+
+Run and compiled for `Python 3.12.9`.
+Expected to run for `Python 3+`.
 
 ## Development
 
 ### Testing
-run tests with `pytest -s -vv` to see all the details.
+Run tests with `pytest -s -vv` to see all the details.
 
 ### Installation as Consuming Developer
 
 Simply run: `pip install tks-essentials`
 
-Import in modules without the dash (e.g.): `from tksessentials.globallogger import GlobalLogger`
+Import in modules without the dash (e.g.):
+```python
+from tksessentials import global_logger
+```
 
 ### Setup as Contributor
-Create the virtul environment: 
+Create the virtual environment:
 ```
 py -m venv .venv
 ```
-Start the Environment: 
+Start the environment:
 ```
 ./.venv/Scripts/activate
 ```
- (or allow VS Code to start it). Use `deactivate`to stop it.
+(or allow VS Code to start it). Use `deactivate` to stop it.
 
-All the required libraries must be listed in requirements.txt and installed by  
+All the required libraries must be listed in `requirements.txt` and installed by
 ```
 python -m pip install -r .\requirements.txt
 ```
-For Dev use 
+For dev use:
 ```
 python -m pip install -r .\requirements-dev.txt
 ```
@@ -56,13 +59,17 @@ pip3 install pip-autoremove
 ```
 
 ### Testing
-Before running the tests, make sure that the utils.py can find the root directory. Either set the PROJECT_ROOT environement variable to the root directory, or simply create a config or a logs directory within the project root. Then run the pytests. 
+Before running the tests, make sure that `utils.py` can find the root directory. Either set the
+`PROJECT_ROOT` environment variable to the root directory, or create a `config` or `logs` directory
+within the project root. Then run `pytest`.
 
 ### Build Library
-Prerequisite: make sure that you give your Operating System user the right to modify files in the python directory. The directory where pyhton is installed.
-Use 
-```python setup.py bdist_wheel```
- to create the dist, build and .eggs folder.
+Prerequisite: make sure that you give your Operating System user the right to modify files in the
+`python` directory (where Python is installed). Use:
+```
+python setup.py bdist_wheel
+```
+to create the `dist`, `build`, and `.eggs` folders.
 
 
 ## Releasing a new version / CICD Process
