@@ -2,6 +2,7 @@ import inspect
 import logging
 import queue
 import logging.handlers
+import os
 import sys
 from . import utils
 
@@ -42,14 +43,19 @@ def setup_custom_logger(name):
         stream_handler.setLevel(logging.DEBUG)
         stream_handler.setFormatter(formatter)
 
-        # the local logging is fine, but there sould be a Fluent Bit integration, which sends logs to the central LMM instance
-        timerotating_handler = logging.handlers.TimedRotatingFileHandler(
-            utils.get_log_path().joinpath("app_rolling.log"), when="D", backupCount=30, encoding="utf-8"
-        )
-        timerotating_handler.setLevel(utils.get_logging_level())
-        timerotating_handler.setFormatter(formatter)
+        handler_list = [stream_handler]
+        env_value = os.environ.get("ENV")
+        if env_value is None or env_value.upper() == "DEV":
+            # Local file logging is only used in DEV environments.
+            timerotating_handler = logging.handlers.TimedRotatingFileHandler(
+                utils.get_log_path().joinpath("app_rolling.log"), when="D", backupCount=30, encoding="utf-8"
+            )
+            timerotating_handler.setLevel(utils.get_logging_level())
+            timerotating_handler.setFormatter(formatter)
+            handler_list.append(timerotating_handler)
+
         listener = logging.handlers.QueueListener(
-            log_queue, stream_handler, timerotating_handler, respect_handler_level=True
+            log_queue, *handler_list, respect_handler_level=True
         )
 
         # Only print the following when instantiated by the main.py file - and not other files.
