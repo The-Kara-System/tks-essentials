@@ -29,6 +29,9 @@ def setup_custom_logger(name):
         # set the non-blocking handler first
         logger.addHandler(queue_handler)
 
+        log_path = utils.get_log_path()
+        log_path.mkdir(parents=True, exist_ok=True)
+
         # Stream is important for looking at the k8s pod logs.
         stream_handler = logging.StreamHandler()
         stream_handler.setLevel(logging.DEBUG)
@@ -36,7 +39,7 @@ def setup_custom_logger(name):
 
         # the local logging is fine, but there sould be a Fluent Bit integration, which sends logs to the central LMM instance
         timerotating_handler = logging.handlers.TimedRotatingFileHandler(
-            utils.get_log_path().joinpath("app_rolling.log"), when="D", backupCount=30
+            log_path.joinpath("app_rolling.log"), when="D", backupCount=30
         )
         timerotating_handler.setLevel(utils.get_logging_level())
         timerotating_handler.setFormatter(formatter)
