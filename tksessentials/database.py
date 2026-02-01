@@ -219,9 +219,9 @@ async def prepare_sql_statement(sql_statement: str) -> str:
                 logger.debug(f"PARTITIONS argument has been removed from the SQL statement, since the topic already exists. {sql_statement}")
             return sql_statement
         else:
-            logger.info(f"Kafka topic {kafka_topic} does not exist. Setting PARTITIONS to 3 if not specified.")
+            logger.info(f"Kafka topic {kafka_topic} does not exist. Setting PARTITIONS to 6 if not specified.")
             if not partitions_match:
-                sql_statement = re.sub(r"\);", ", PARTITIONS=3);", sql_statement)
+                sql_statement = re.sub(r"\);", ", PARTITIONS=6);", sql_statement)
             return sql_statement
     return sql_statement
 
@@ -371,63 +371,63 @@ async def produce_message(topic_name: str, key: str, value: any) -> None:
         await kp.stop()
 
 async def check_availability_with_retry(check_functions, max_wait_time=None, poll_interval=5):
-        """Checks the availability of services with retry logic.
+    """Checks the availability of services with retry logic.
 
-        Args:
-            check_functions (list): List of functions to check service availability.
-                                    The functions can be a mix of async and sync functions.
-            max_wait_time (int or None): Maximum wait time in seconds. If None, wait indefinitely.
-            poll_interval (int): Poll interval in seconds.
+    Args:
+        check_functions (list): List of functions to check service availability.
+                                The functions can be a mix of async and sync functions.
+        max_wait_time (int or None): Maximum wait time in seconds. If None, wait indefinitely.
+        poll_interval (int): Poll interval in seconds.
 
-        Raises:
-            TimeoutError: If services are not available within the max wait time.
-        """
-        elapsed_time = 0
+    Raises:
+        TimeoutError: If services are not available within the max wait time.
+    """
+    elapsed_time = 0
 
-        while max_wait_time is None or elapsed_time < max_wait_time:
-            checks = []
-            for check in check_functions:
-                try:
-                    if asyncio.iscoroutinefunction(check):
-                        # If the function is async, await it
-                        result = await check()
+    while max_wait_time is None or elapsed_time < max_wait_time:
+        checks = []
+        for check in check_functions:
+            try:
+                if asyncio.iscoroutinefunction(check):
+                    # If the function is async, await it
+                    result = await check()
+                else:
+                    # If the function is sync, call it directly
+                    result = check()
+                
+                # Log the result of each check
+                if check.__name__ == 'is_kafka_available':
+                    if result:
+                        logger.info("Kafka is available.")
                     else:
-                        # If the function is sync, call it directly
-                        result = check()
-                    
-                    # Log the result of each check
-                    if check.__name__ == 'is_kafka_available':
-                        if result:
-                            logger.info("Kafka is available.")
-                        else:
-                            logger.info("Kafka is not available.")
-                    elif check.__name__ == 'is_ksqldb_available':
-                        if result:
-                            logger.info("ksqlDB is available.")
-                        else:
-                            logger.info("ksqlDB is not available.")
-                    
-                    checks.append(result)
-                except Exception as e:
-                    if check.__name__ == 'is_kafka_available':
-                        logger.error(f"Error checking Kafka availability: {e}")
                         logger.info("Kafka is not available.")
-                        checks.append(False)
-                    elif check.__name__ == 'is_ksqldb_available':
-                        logger.error(f"Error checking ksqlDB availability: {e}")
+                elif check.__name__ == 'is_ksqldb_available':
+                    if result:
+                        logger.info("ksqlDB is available.")
+                    else:
                         logger.info("ksqlDB is not available.")
-                        checks.append(False)
+                
+                checks.append(result)
+            except Exception as e:
+                if check.__name__ == 'is_kafka_available':
+                    logger.error(f"Error checking Kafka availability: {e}")
+                    logger.info("Kafka is not available.")
+                    checks.append(False)
+                elif check.__name__ == 'is_ksqldb_available':
+                    logger.error(f"Error checking ksqlDB availability: {e}")
+                    logger.info("ksqlDB is not available.")
+                    checks.append(False)
 
-            if all(checks):
-                logger.info("All services are available. Proceeding...")
-                return True
-            else:
-                logger.info("One or more services are not available. Retrying...")
-                await asyncio.sleep(poll_interval)
-                elapsed_time += poll_interval
+        if all(checks):
+            logger.info("All services are available. Proceeding...")
+            return True
+        else:
+            logger.info("One or more services are not available. Retrying...")
+            await asyncio.sleep(poll_interval)
+            elapsed_time += poll_interval
 
-        logger.error("Timed out waiting for services to be available.")
-        raise TimeoutError("Timed out waiting for services to be available.")
+    logger.error("Timed out waiting for services to be available.")
+    raise TimeoutError("Timed out waiting for services to be available.")
 
 async def execute_with_retries(sql_task, retries=None, delay=20):
     attempt = 0
@@ -446,18 +446,24 @@ async def execute_with_retries(sql_task, retries=None, delay=20):
 
     raise Exception(f"Failed to execute SQL after {attempt} attempts: {sql_task}")
 
-async def create_topic(topic_name: str, partitions: int = 6, replication_factor: int = 3):
+async def create_topic(topic_name: str, partitions: int = 6, replication_factor: int = 2, compacted: bool = False):
     """Create a Kafka topic if it does not exist, using aiokafka’s async admin API."""
     brokers = get_kafka_cluster_brokers()
     admin = AIOKafkaAdminClient(bootstrap_servers=",".join(brokers))
     # 1. Bootstrap metadata (must do this before calling create_topics) 
     await admin.start()  # :contentReference[oaicite:2]{index=2}
     try:
+        topic_configs = {
+            "retention.ms": "-1",
+            "retention.bytes": "-1",
+            "cleanup.policy": "compact" if compacted else "delete",
+        }
         # 2. Define topic spec
         new_topic = NewTopic(
             name=topic_name,
             num_partitions=partitions,
             replication_factor=replication_factor,
+            topic_configs=topic_configs,
         )
         # 3. Create it (raises TopicAlreadyExistsError if already there)
         await admin.create_topics(new_topics=[new_topic], validate_only=False)

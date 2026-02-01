@@ -2,7 +2,7 @@ import time
 import pytest
 from tksessentials import database, utils
 from tksessentials.database import KSQLNotReadyError
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 import httpx
 
 @pytest.fixture(scope="module")
@@ -124,17 +124,17 @@ async def test_prepare_sql_statement():
         KAFKA_TOPIC='test_topic_partition',
         VALUE_FORMAT='JSON',
         TIMESTAMP='event_timestamp',
-        PARTITIONS=3
+        PARTITIONS=6
     );
     """
 
     with patch('tksessentials.database.topic_exists', return_value=True):
         prepared_statement = await database.prepare_sql_statement(sql_statement)
-        assert "PARTITIONS=3" not in prepared_statement
+        assert "PARTITIONS=6" not in prepared_statement
 
     with patch('tksessentials.database.topic_exists', return_value=False):
         prepared_statement = await database.prepare_sql_statement(sql_statement)
-        assert "PARTITIONS=3" in prepared_statement
+        assert "PARTITIONS=6" in prepared_statement
 
 @pytest.mark.asyncio
 async def test_prepare_sql_statement_missing():
@@ -171,11 +171,11 @@ async def test_prepare_sql_statement_missing():
 
     with patch('tksessentials.database.topic_exists', return_value=True):
         prepared_statement = await database.prepare_sql_statement(sql_statement)
-        assert "PARTITIONS=3" not in prepared_statement
+        assert "PARTITIONS=6" not in prepared_statement
 
     with patch('tksessentials.database.topic_exists', return_value=False):
         prepared_statement = await database.prepare_sql_statement(sql_statement)
-        assert "PARTITIONS=3" in prepared_statement
+        assert "PARTITIONS=6" in prepared_statement
 
 def test_clean_sql_statement():
     sql_statement = """
@@ -205,11 +205,11 @@ def test_clean_sql_statement():
         KAFKA_TOPIC='fa_signal_processing.trading_signal_received',
         VALUE_FORMAT='JSON',
         TIMESTAMP='event_timestamp',
-        PARTITIONS=3
+        PARTITIONS=6
     );
     """
 
-    expected_cleaned_sql = "CREATE TABLE fa_signal_processing_trading_signal_received( event_timestamp BIGINT PRIMARY KEY, detail STRING, data STRING, signal_data STRUCT< provider_signal_id STRING, provider_trade_id STRING, provider_id STRING, strategy_id STRING, is_hot_signal BOOLEAN, market STRING, data_source STRING, direction STRING, side STRING, order_type STRING, price DOUBLE, tp DOUBLE, sl DOUBLE, position_size_in_percentage INT, date_of_creation BIGINT >, ip STRING ) WITH ( KAFKA_TOPIC='fa_signal_processing.trading_signal_received', VALUE_FORMAT='JSON', TIMESTAMP='event_timestamp', PARTITIONS=3 );"
+    expected_cleaned_sql = "CREATE TABLE fa_signal_processing_trading_signal_received( event_timestamp BIGINT PRIMARY KEY, detail STRING, data STRING, signal_data STRUCT< provider_signal_id STRING, provider_trade_id STRING, provider_id STRING, strategy_id STRING, is_hot_signal BOOLEAN, market STRING, data_source STRING, direction STRING, side STRING, order_type STRING, price DOUBLE, tp DOUBLE, sl DOUBLE, position_size_in_percentage INT, date_of_creation BIGINT >, ip STRING ) WITH ( KAFKA_TOPIC='fa_signal_processing.trading_signal_received', VALUE_FORMAT='JSON', TIMESTAMP='event_timestamp', PARTITIONS=6 );"
 
     cleaned_sql = database.clean_sql_statement(sql_statement)
     assert cleaned_sql == expected_cleaned_sql
@@ -278,3 +278,41 @@ async def test_create_stream():
         except Exception as e:
             print(f"Test failed with an unexpected error: {e}")
             raise
+
+@pytest.mark.asyncio
+async def test_create_topic_defaults():
+    admin_instance = AsyncMock()
+    admin_instance.start = AsyncMock()
+    admin_instance.create_topics = AsyncMock()
+    admin_instance.close = AsyncMock()
+
+    with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance) as admin_cls:
+        with patch('tksessentials.database.NewTopic', return_value="topic_spec") as new_topic_cls:
+            await database.create_topic("test_topic")
+
+    admin_cls.assert_called_once()
+    new_topic_cls.assert_called_once()
+    kwargs = new_topic_cls.call_args.kwargs
+    assert kwargs["name"] == "test_topic"
+    assert kwargs["num_partitions"] == 6
+    assert kwargs["replication_factor"] == 2
+    assert kwargs["topic_configs"]["cleanup.policy"] == "delete"
+    assert kwargs["topic_configs"]["retention.ms"] == "-1"
+    assert kwargs["topic_configs"]["retention.bytes"] == "-1"
+    admin_instance.create_topics.assert_awaited_once_with(new_topics=["topic_spec"], validate_only=False)
+
+@pytest.mark.asyncio
+async def test_create_topic_compacted():
+    admin_instance = AsyncMock()
+    admin_instance.start = AsyncMock()
+    admin_instance.create_topics = AsyncMock()
+    admin_instance.close = AsyncMock()
+
+    with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance):
+        with patch('tksessentials.database.NewTopic', return_value="topic_spec") as new_topic_cls:
+            await database.create_topic("test_topic", compacted=True)
+
+    kwargs = new_topic_cls.call_args.kwargs
+    assert kwargs["topic_configs"]["cleanup.policy"] == "compact"
+    assert kwargs["topic_configs"]["retention.ms"] == "-1"
+    assert kwargs["topic_configs"]["retention.bytes"] == "-1"
