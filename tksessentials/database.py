@@ -9,7 +9,7 @@ import httpx
 import pydantic
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
-from aiokafka.errors import TopicAlreadyExistsError, KafkaError
+from aiokafka.errors import TopicAlreadyExistsError, KafkaError, for_code
 from tksessentials import utils, global_logger
 from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
 
@@ -104,7 +104,7 @@ async def get_default_kafka_producer(client_id: str = compose_producer_id()) -> 
             return json.dumps(v).encode(DEFAULT_ENCODING)
 
     def get_key_serializer(k: str) -> bytes:
-        return k.encode(DEFAULT_ENCODING)    
+        return k.encode(DEFAULT_ENCODING)
 
     producer: AIOKafkaProducer = AIOKafkaProducer(
         bootstrap_servers=broker_str,
@@ -125,7 +125,7 @@ async def get_default_kafka_consumer(topics: str, client: str = compose_consumer
 
     def get_key_deserializer(key_bytes: bytes) -> str:
         return key_bytes.decode(DEFAULT_ENCODING)
-        
+
     brokers: List[str] = get_kafka_cluster_brokers()
     broker_str = ",".join(brokers)
     # Create the Producer instance
@@ -231,7 +231,7 @@ def clean_sql_statement(sql_statement: str) -> str:
 
 async def create_table(sql_statement: str, table_name: str):
     """The invocation of this function will retry endlessly if the httpx.RemoteProtocolError or httpx.ConnectError occures. This implies, that the cluster is not yet ready and thus we need to retry.
-    For all other exceptions, we retry for 60 seconds (every 5 seconds).    
+    For all other exceptions, we retry for 60 seconds (every 5 seconds).
     """
     logger.info(f"Attempting to create table {table_name} with SQL statement {sql_statement}.")
     sql_statement = clean_sql_statement(sql_statement)
@@ -296,7 +296,7 @@ def stream_exists(name: str, connection_time_out: float = 60.0) -> bool:
 
 async def create_stream(sql_statement: str, stream_name: str):
     """The invocation of this function will retry endlessly if the httpx.RemoteProtocolError or httpx.ConnectError occures. This implies, that the cluster is not yet ready and thus we need to retry.
-    For all other exceptions, we retry for 60 seconds (every 5 seconds).    
+    For all other exceptions, we retry for 60 seconds (every 5 seconds).
     """
     logger.info(f"Attempting to create stream {stream_name} with SQL statement {sql_statement}.")
     sql_statement = clean_sql_statement(sql_statement)
@@ -356,7 +356,7 @@ async def produce_message(topic_name: str, key: str, value: any) -> None:
     try:
         await kp.send_and_wait(topic=topic_name, key=key, value=value)
     except KafkaError as ke:
-        error_message = f"""An error occurred when trying to send a message of type {type(object)} to the database. 
+        error_message = f"""An error occurred when trying to send a message of type {type(object)} to the database.
                         Error message: {ke}"""
         logger.error(error_message)
         raise Exception(error_message)
@@ -394,7 +394,7 @@ async def check_availability_with_retry(check_functions, max_wait_time=None, pol
                 else:
                     # If the function is sync, call it directly
                     result = check()
-                
+
                 # Log the result of each check
                 if check.__name__ == 'is_kafka_available':
                     if result:
@@ -406,7 +406,7 @@ async def check_availability_with_retry(check_functions, max_wait_time=None, pol
                         logger.info("ksqlDB is available.")
                     else:
                         logger.info("ksqlDB is not available.")
-                
+
                 checks.append(result)
             except Exception as e:
                 if check.__name__ == 'is_kafka_available':
@@ -449,8 +449,9 @@ async def execute_with_retries(sql_task, retries=None, delay=20):
 async def create_topic(topic_name: str, partitions: int = 6, replication_factor: int = 2, compacted: bool = False):
     """Create a Kafka topic if it does not exist, using aiokafka’s async admin API."""
     brokers = get_kafka_cluster_brokers()
-    admin = AIOKafkaAdminClient(bootstrap_servers=",".join(brokers))
-    # 1. Bootstrap metadata (must do this before calling create_topics) 
+    broker_str = brokers if isinstance(brokers, str) else ",".join(brokers)
+    admin = AIOKafkaAdminClient(bootstrap_servers=broker_str)
+    # 1. Bootstrap metadata (must do this before calling create_topics)
     await admin.start()  # :contentReference[oaicite:2]{index=2}
     try:
         topic_configs = {
@@ -465,8 +466,26 @@ async def create_topic(topic_name: str, partitions: int = 6, replication_factor:
             replication_factor=replication_factor,
             topic_configs=topic_configs,
         )
-        # 3. Create it (raises TopicAlreadyExistsError if already there)
-        await admin.create_topics(new_topics=[new_topic], validate_only=False)
+        # 3. Create it and validate result codes
+        response = await admin.create_topics(new_topics=[new_topic], validate_only=False)
+        response_obj = response.to_object()
+        topic_errors = response_obj.get("topic_errors", [])
+        if topic_errors:
+            for entry in topic_errors:
+                if entry.get("topic") != topic_name:
+                    continue
+                error_code = entry.get("error_code", 0)
+                if error_code != 0:
+                    error_cls = for_code(error_code)
+                    if error_cls is TopicAlreadyExistsError:
+                        logger.info(f"Topic '{topic_name}' already exists.")
+                        return
+                    error_message = entry.get("error_message")
+                    message = f"Failed to create topic '{topic_name}' (error_code={error_code})"
+                    if error_message:
+                        message = f"{message}: {error_message}"
+                    raise error_cls(message)
+                break
         logger.info(f"Topic '{topic_name}' created successfully.")
     except TopicAlreadyExistsError:
         logger.info(f"Topic '{topic_name}' already exists.")
