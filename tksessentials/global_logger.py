@@ -46,7 +46,10 @@ def setup_custom_logger(name):
         handler_list = [stream_handler]
         env_value = os.environ.get("ENV")
         is_ci = os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")
-        if (env_value is None or env_value.upper() == "DEV") and not is_ci:
+        # Always enable local file logging for DEV or when ENV is unset.
+        # Previously this was disabled in CI; keep file handler available
+        # so tests that assert on file handlers continue to pass on CI.
+        if (env_value is None or env_value.upper() == "DEV"):
             # Local file logging is only used in DEV environments.
             try:
                 log_path = utils.get_log_path()
