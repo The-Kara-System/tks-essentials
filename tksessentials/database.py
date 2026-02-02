@@ -46,19 +46,30 @@ async def is_kafka_available() -> bool:
         logger.error(f"Error checking Kafka availability: {e}")
         return False
 
+def _normalize_broker_list(value: str | List[str] | None) -> List[str]:
+    if value is None:
+        return ["localhost:9092"]
+    if isinstance(value, (list, tuple)):
+        cleaned = [str(v).strip() for v in value if str(v).strip()]
+        return cleaned or ["localhost:9092"]
+    if not isinstance(value, str):
+        return ["localhost:9092"]
+    raw = value.strip()
+    if not raw or raw == "NODES_NOT_DEFINED":
+        return ["localhost:9092"]
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    return parts or ["localhost:9092"]
+
+
 def get_kafka_cluster_brokers() -> List[str]:
     """Fetch the kafka broker array. This should return an array with nodes and ports.
     e.g. ['localhost:9092', 'localhost:9093']"""
     if utils.get_environment().upper() in ["DEV", None]:
-        kafka_broker_string: str = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
-        if kafka_broker_string == "NODES_NOT_DEFINED":
-            return ['localhost:9092']
-        else:
-            return kafka_broker_string
-    else:
-        # the value of the KAFKA_BROKER_STRING is set by the global config map.
-        brokers = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
-    return brokers.split(",")
+        kafka_broker_value = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
+        return _normalize_broker_list(kafka_broker_value)
+    # the value of the KAFKA_BROKER_STRING is set by the global config map.
+    brokers = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
+    return _normalize_broker_list(brokers)
 
 def compose_consumer_id() -> str:
     """Do not mistaken the consumer_id for the consumer_group_name.
@@ -487,6 +498,22 @@ async def create_topic(topic_name: str, partitions: int = 6, replication_factor:
                     raise error_cls(message)
                 break
         logger.info(f"Topic '{topic_name}' created successfully.")
+        # Wait until the broker reports partitions for the topic
+        max_wait = 30
+        waited = 0
+        poll = 1
+        while waited < max_wait:
+            try:
+                obj = await admin.describe_topics([topic_name])
+                if obj and isinstance(obj, list):
+                    for t in obj:
+                        if t.get("topic") == topic_name and t.get("partitions"):
+                            return
+            except Exception:
+                # ignore transient errors while waiting for metadata
+                pass
+            await asyncio.sleep(poll)
+            waited += poll
     except TopicAlreadyExistsError:
         logger.info(f"Topic '{topic_name}' already exists.")
     except KafkaError as e:

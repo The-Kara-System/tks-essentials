@@ -1,4 +1,5 @@
 import time
+from types import SimpleNamespace
 import pytest
 from tksessentials import database, utils
 from tksessentials.database import KSQLNotReadyError
@@ -29,6 +30,23 @@ def test_get_kafka_cluster_brokers_non_dev():
             # Check if the returned brokers contain the expected substring
             assert 'broker1.svc.cluster.local:9092' in brokers
             assert brokers == ['broker1.svc.cluster.local:9092', 'broker2.svc.cluster.local:9093']
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, ["localhost:9092"]),
+        ("", ["localhost:9092"]),
+        ("   ", ["localhost:9092"]),
+        ("NODES_NOT_DEFINED", ["localhost:9092"]),
+        (" broker1:9092 , ,broker2:9093,, ", ["broker1:9092", "broker2:9093"]),
+        ([" broker1:9092 ", "", "broker2:9093", "   "], ["broker1:9092", "broker2:9093"]),
+        (("broker1:9092", "broker2:9093"), ["broker1:9092", "broker2:9093"]),
+        (["", "   "], ["localhost:9092"]),
+        (123, ["localhost:9092"]),
+    ],
+)
+def test_normalize_broker_list(value, expected):
+    assert database._normalize_broker_list(value) == expected
 
 def test_table_or_view_exists():
     max_retries = 5
@@ -283,7 +301,9 @@ async def test_create_stream():
 async def test_create_topic_defaults():
     admin_instance = AsyncMock()
     admin_instance.start = AsyncMock()
-    admin_instance.create_topics = AsyncMock()
+    admin_instance.create_topics = AsyncMock(
+        return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})
+    )
     admin_instance.close = AsyncMock()
 
     with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance) as admin_cls:
@@ -305,7 +325,9 @@ async def test_create_topic_defaults():
 async def test_create_topic_compacted():
     admin_instance = AsyncMock()
     admin_instance.start = AsyncMock()
-    admin_instance.create_topics = AsyncMock()
+    admin_instance.create_topics = AsyncMock(
+        return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})
+    )
     admin_instance.close = AsyncMock()
 
     with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance):

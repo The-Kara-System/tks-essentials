@@ -45,14 +45,21 @@ def setup_custom_logger(name):
 
         handler_list = [stream_handler]
         env_value = os.environ.get("ENV")
-        if env_value is None or env_value.upper() == "DEV":
+        is_ci = os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")
+        if (env_value is None or env_value.upper() == "DEV") and not is_ci:
             # Local file logging is only used in DEV environments.
-            timerotating_handler = logging.handlers.TimedRotatingFileHandler(
-                utils.get_log_path().joinpath("app_rolling.log"), when="D", backupCount=30, encoding="utf-8"
-            )
-            timerotating_handler.setLevel(utils.get_logging_level())
-            timerotating_handler.setFormatter(formatter)
-            handler_list.append(timerotating_handler)
+            try:
+                log_path = utils.get_log_path()
+                log_path.mkdir(parents=True, exist_ok=True)
+                timerotating_handler = logging.handlers.TimedRotatingFileHandler(
+                    log_path.joinpath("app_rolling.log"), when="D", backupCount=30, encoding="utf-8"
+                )
+                timerotating_handler.setLevel(utils.get_logging_level())
+                timerotating_handler.setFormatter(formatter)
+                handler_list.append(timerotating_handler)
+            except Exception:
+                # Do not fail logging if the log path is unavailable.
+                pass
 
         listener = logging.handlers.QueueListener(
             log_queue, *handler_list, respect_handler_level=True
