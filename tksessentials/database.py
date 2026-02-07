@@ -5,6 +5,7 @@ import random
 import re
 from enum import Enum
 from typing import List
+import uuid
 import httpx
 import pydantic
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
@@ -523,3 +524,104 @@ async def create_topic(topic_name: str, partitions: int = 6, replication_factor:
     finally:
         # 4. Clean up the admin client
         await admin.close()
+
+async def read_compacted_state_snapshot(
+    topic: str,
+    bootstrap_servers: str | list[str],
+    logger,
+    timeout_s: float = 10.0,
+    max_empty_polls: int = 3,
+) -> dict[str, dict]:
+    """
+    Reads a compacted topic from beginning to the current end offsets and returns latest value per key.
+
+    - key: market (string)
+    - value: dict (your message) OR None (tombstone)
+    """
+    if isinstance(bootstrap_servers, list):
+        bootstrap_servers = ",".join(bootstrap_servers)
+
+    # IMPORTANT: use a unique group id so we don't reuse committed offsets.
+    group_id = f"snapshot-{uuid.uuid4()}"
+
+    consumer = AIOKafkaConsumer(
+        topic,
+        bootstrap_servers=bootstrap_servers,
+        group_id=group_id,
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+        # If you already deserialize in database.get_default_kafka_consumer, mirror that here.
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")) if v is not None else None,
+        key_deserializer=lambda k: k.decode("utf-8") if k is not None else None,
+    )
+
+    latest: dict[str, dict | None] = {}
+
+    try:
+        await consumer.start()
+
+        # Wait for partition assignment
+        # (poll once to trigger assignment)
+        await consumer.getmany(timeout_ms=1)
+
+        partitions = consumer.assignment()
+        if not partitions:
+            # Sometimes assignment needs a moment
+            await asyncio.sleep(0.2)
+            await consumer.getmany(timeout_ms=1)
+            partitions = consumer.assignment()
+
+        if not partitions:
+            logger.warning(f"No partitions assigned for topic {topic}. Returning empty snapshot.")
+            return {}
+
+        # Force start at beginning for all assigned partitions
+        await consumer.seek_to_beginning(*partitions)
+
+        # Capture end offsets (the stopping point)
+        end_offsets = await consumer.end_offsets(list(partitions))
+
+        empty_polls = 0
+        while True:
+            batch = await consumer.getmany(timeout_ms=int(timeout_s * 1000), max_records=5000)
+
+            got_any = False
+            for tp, messages in batch.items():
+                if not messages:
+                    continue
+                got_any = True
+                for msg in messages:
+                    k = msg.key
+                    v = msg.value
+                    if k is None:
+                        continue  # skip malformed
+                    latest[k] = v  # v can be None (tombstone)
+
+            if not got_any:
+                empty_polls += 1
+            else:
+                empty_polls = 0
+
+            # Check if we've reached (or passed) end offsets for all partitions
+            done = True
+            for tp in partitions:
+                pos = await consumer.position(tp)
+                if pos < end_offsets[tp]:
+                    done = False
+                    break
+
+            if done:
+                break
+
+            # safety valve: if topic is idle and we keep polling nothing, stop
+            if empty_polls >= max_empty_polls:
+                break
+
+        # Return only non-tombstoned entries
+        return {k: v for k, v in latest.items() if v is not None}
+
+    except KafkaError as e:
+        logger.error(f"Error snapshotting topic {topic}: {e}")
+        return {}
+    finally:
+        await consumer.stop()

@@ -75,43 +75,30 @@ def test_table_or_view_exists():
 
 @pytest.mark.asyncio
 async def test_create_table():
-    TABLE_NAME = "TEST_TABLE"
+    table_name = "TEST_TABLE"
+    topic_name = "test_topic"
+
+    await database.create_topic(
+        topic_name=topic_name,
+        partitions=1,
+        replication_factor=1,  # or 3 in prod; tests usually 1
+        compacted=True,        # optional; table topics are commonly compacted
+    )
+
     sql_statement = f"""
-    CREATE TABLE {TABLE_NAME}(
+    CREATE TABLE {table_name}(
         event_timestamp BIGINT PRIMARY KEY,
         detail STRING,
         data STRING
     ) WITH (
-        KAFKA_TOPIC='test_topic',
+        KAFKA_TOPIC='{topic_name}',
         VALUE_FORMAT='JSON',
         PARTITIONS=1
     );
     """
 
-    max_retries = 5
-    delay = 10  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            await database.create_table(sql_statement, TABLE_NAME)
-            assert database.table_or_view_exists(TABLE_NAME)
-            break
-        except (
-            httpx.ConnectError,
-            KSQLNotReadyError,
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-        ) as e:
-            if attempt < max_retries - 1:
-                print(
-                    f"Attempt {attempt + 1}/{max_retries} failed with error: {e}. Retrying in {delay} seconds..."
-                )
-                time.sleep(delay)
-            else:
-                raise
-        except Exception as e:
-            print(f"Test failed with an unexpected error: {e}")
-            raise
+    await database.create_table(sql_statement, table_name)
+    assert database.table_or_view_exists(table_name)
 
 @pytest.mark.asyncio
 async def test_prepare_sql_statement():
@@ -338,3 +325,85 @@ async def test_create_topic_compacted():
     assert kwargs["topic_configs"]["cleanup.policy"] == "compact"
     assert kwargs["topic_configs"]["retention.ms"] == "-1"
     assert kwargs["topic_configs"]["retention.bytes"] == "-1"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_returns_latest_value_for_same_key(monkeypatch):
+    class Msg:
+        def __init__(self, key, value):
+            self.key = key
+            self.value = value
+
+    class TP:
+        def __init__(self, topic, partition):
+            self.topic = topic
+            self.partition = partition
+        def __hash__(self):
+            return hash((self.topic, self.partition))
+        def __eq__(self, other):
+            return (self.topic, self.partition) == (other.topic, other.partition)
+
+    tp0 = TP("test_topic", 0)
+
+    messages = [
+        Msg("BTC", {"v": 1}),
+        Msg("ETH", {"v": 10}),
+        Msg("BTC", {"v": 2}),  # latest wins
+    ]
+
+    class FakeConsumer:
+        def __init__(self, *args, **kwargs):
+            self._assigned = {tp0}
+            self._end_offsets = {tp0: len(messages)}
+            self._pos = {tp0: 0}
+            self._assignment_poll_done = False
+
+        async def start(self): return
+        async def stop(self): return
+
+        def assignment(self):
+            return self._assigned
+
+        async def seek_to_beginning(self, *partitions):
+            self._pos[tp0] = 0
+
+        async def end_offsets(self, partitions):
+            return self._end_offsets
+
+        async def position(self, tp):
+            return self._pos[tp]
+
+        async def getmany(self, timeout_ms=0, max_records=None):
+            # 1) First poll(s) in your function are only to trigger assignment.
+            #    We must NOT consume any data there.
+            if timeout_ms <= 1 and not self._assignment_poll_done:
+                self._assignment_poll_done = True
+                return {tp0: []}
+
+            # 2) After seek_to_beginning(), read from current position
+            start = self._pos[tp0]
+            if start >= len(messages):
+                return {tp0: []}
+
+            end = len(messages) if max_records is None else min(len(messages), start + max_records)
+            batch = messages[start:end]
+            self._pos[tp0] = end
+            return {tp0: batch}
+
+    # Patch where AIOKafkaConsumer is looked up.
+    monkeypatch.setattr(database, "AIOKafkaConsumer", FakeConsumer)
+
+    class Logger:
+        def warning(self, *_): pass
+        def error(self, *_): pass
+
+    snapshot = await database.read_compacted_state_snapshot(
+        topic="test_topic",
+        bootstrap_servers="localhost:9092",
+        logger=Logger(),
+        timeout_s=0.1,
+        max_empty_polls=2,  # can stay 1 too; 2 is just extra safe
+    )
+
+    assert snapshot["BTC"] == {"v": 2}
+    assert snapshot["ETH"] == {"v": 10}

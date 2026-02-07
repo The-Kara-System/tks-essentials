@@ -166,6 +166,7 @@ async def test_replication_factor_explicit_two():
     await _require_min_brokers(3)
     topic_name = f"replication_two_{uuid.uuid4().hex}"
     await database.create_topic(topic_name, replication_factor=2)
+    await asyncio.sleep(10)  # Allow some time for the topic to be fully created before checking metadata
 
     try:
         await _wait_for_topic(topic_name, should_exist=True)
@@ -178,7 +179,7 @@ async def test_replication_factor_explicit_two():
     finally:
         await _delete_topic(topic_name)
         await _wait_for_topic(topic_name, should_exist=False)
-
+        
 
 @pytest.mark.asyncio
 async def test_replication_factor_default_two():
@@ -223,6 +224,7 @@ async def test_partitions_default_six():
     await _require_min_brokers(3)
     topic_name = f"partitions_default_{uuid.uuid4().hex}"
     await database.create_topic(topic_name)
+    await asyncio.sleep(10)  # Allow some time for the topic to be fully created before checking metadata
 
     try:
         await _wait_for_topic(topic_name, should_exist=True)
