@@ -12,4 +12,5 @@ twine
 # Testing
 pytest==8.2.0
 pytest-asyncio
+pytest-cov
 responses

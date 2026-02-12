@@ -59,8 +59,16 @@ jobs:
           echo "Directory contents:"
           ls -l
 
-      - name: Run all PyTests
-        run: pytest -s -vv
+      - name: Run all PyTests with coverage
+        run: pytest -s -vv --cov=tksessentials --cov-report=term-missing --cov-report=html
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 30
 
   pypi-publish:
     needs: build

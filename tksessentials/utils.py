@@ -100,7 +100,7 @@ def get_service_url() -> str:
 
 def get_service_doc_url() -> str:
     """Return the OpenAPI url"""
-    return f"{get_service_url}/docs"
+    return f"{get_service_url()}/docs"
 
 def get_logging_level() -> str:
     return get_app_config().get("logging_level", os.getenv("LOGGING_LEVEL", "DEBUG")).upper()
