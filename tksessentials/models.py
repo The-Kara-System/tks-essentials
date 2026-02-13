@@ -232,6 +232,7 @@ class TradingSignalReceived(TradingSignalEvent):
 
 
 class ReasonForRejection(str, Enum):
+    """Use this Reason when a trading signal is fully rejected. e.g. when it wont even be processed for paper-trading."""
     STRATEGY_PRM_REJECTED = "strategy_prm_rejected"
     PRM_REJECTED = "prm_rejected"
     NOT_AUTHENTICATED = "not_authenticated"
