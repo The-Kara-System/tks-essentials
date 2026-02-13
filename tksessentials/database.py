@@ -458,7 +458,51 @@ async def execute_with_retries(sql_task, retries=None, delay=20):
 
     raise Exception(f"Failed to execute SQL after {attempt} attempts: {sql_task}")
 
-async def create_topic(topic_name: str, partitions: int = 6, replication_factor: int = 2, compacted: bool = False):
+def _normalize_cleanup_policy(cleanup_policy: str | List[str] | None, compacted: bool) -> str:
+    """Return a valid Kafka cleanup.policy string while preserving backward compatibility.
+
+    Rules:
+    - cleanup_policy=None -> derive from compacted (compact/delete)
+    - cleanup_policy=str/list -> normalize and deduplicate, preserving order
+    - if compacted=True and compact is not present, append compact
+    """
+    if cleanup_policy is None:
+        policies = ["compact"] if compacted else ["delete"]
+    else:
+        raw_values: List[str]
+        if isinstance(cleanup_policy, str):
+            raw_values = cleanup_policy.split(",")
+        else:
+            raw_values = [str(value) for value in cleanup_policy]
+
+        policies = []
+        for value in raw_values:
+            normalized = value.strip().lower()
+            if normalized and normalized not in policies:
+                policies.append(normalized)
+
+        if not policies:
+            policies = ["compact"] if compacted else ["delete"]
+
+        invalid = [policy for policy in policies if policy not in {"delete", "compact"}]
+        if invalid:
+            raise ValueError(
+                f"Invalid cleanup policy value(s): {invalid}. Allowed values: 'delete', 'compact'."
+            )
+
+        if compacted and "compact" not in policies:
+            policies.append("compact")
+
+    return ",".join(policies)
+
+
+async def create_topic(
+    topic_name: str,
+    partitions: int = 6,
+    replication_factor: int = 2,
+    compacted: bool = False,
+    cleanup_policy: str | List[str] | None = None,
+):
     """Create a Kafka topic if it does not exist, using aiokafka’s async admin API."""
     brokers = get_kafka_cluster_brokers()
     broker_str = brokers if isinstance(brokers, str) else ",".join(brokers)
@@ -469,7 +513,7 @@ async def create_topic(topic_name: str, partitions: int = 6, replication_factor:
         topic_configs = {
             "retention.ms": "-1",
             "retention.bytes": "-1",
-            "cleanup.policy": "compact" if compacted else "delete",
+            "cleanup.policy": _normalize_cleanup_policy(cleanup_policy, compacted),
         }
         # 2. Define topic spec
         new_topic = NewTopic(

@@ -48,6 +48,42 @@ def test_get_kafka_cluster_brokers_non_dev():
 def test_normalize_broker_list(value, expected):
     assert database._normalize_broker_list(value) == expected
 
+
+@pytest.mark.parametrize(
+    "cleanup_policy,compacted,expected",
+    [
+        (None, False, "delete"),
+        (None, True, "compact"),
+        ("delete", False, "delete"),
+        ("compact", False, "compact"),
+        ("delete,compact", False, "delete,compact"),
+        ("compact,delete", False, "compact,delete"),
+        (" delete , compact ", False, "delete,compact"),
+        (["delete", "compact"], False, "delete,compact"),
+        (["delete", "delete", "compact"], False, "delete,compact"),
+        ("", False, "delete"),
+        ("   ", True, "compact"),
+        ("delete", True, "delete,compact"),
+        ("compact", True, "compact"),
+        (["delete"], True, "delete,compact"),
+    ],
+)
+def test_normalize_cleanup_policy_valid_combinations(cleanup_policy, compacted, expected):
+    assert database._normalize_cleanup_policy(cleanup_policy, compacted) == expected
+
+
+@pytest.mark.parametrize(
+    "cleanup_policy",
+    [
+        "archive",
+        "delete,archive",
+        ["compact", "archive"],
+    ],
+)
+def test_normalize_cleanup_policy_rejects_invalid_values(cleanup_policy):
+    with pytest.raises(ValueError):
+        database._normalize_cleanup_policy(cleanup_policy, compacted=False)
+
 def test_table_or_view_exists():
     max_retries = 5
     delay = 10  # seconds
@@ -325,6 +361,40 @@ async def test_create_topic_compacted():
     assert kwargs["topic_configs"]["cleanup.policy"] == "compact"
     assert kwargs["topic_configs"]["retention.ms"] == "-1"
     assert kwargs["topic_configs"]["retention.bytes"] == "-1"
+
+
+@pytest.mark.asyncio
+async def test_create_topic_dual_cleanup_policy_string():
+    admin_instance = AsyncMock()
+    admin_instance.start = AsyncMock()
+    admin_instance.create_topics = AsyncMock(
+        return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})
+    )
+    admin_instance.close = AsyncMock()
+
+    with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance):
+        with patch('tksessentials.database.NewTopic', return_value="topic_spec") as new_topic_cls:
+            await database.create_topic("test_topic", cleanup_policy="delete,compact")
+
+    kwargs = new_topic_cls.call_args.kwargs
+    assert kwargs["topic_configs"]["cleanup.policy"] == "delete,compact"
+
+
+@pytest.mark.asyncio
+async def test_create_topic_compacted_true_keeps_compact_when_cleanup_policy_delete():
+    admin_instance = AsyncMock()
+    admin_instance.start = AsyncMock()
+    admin_instance.create_topics = AsyncMock(
+        return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})
+    )
+    admin_instance.close = AsyncMock()
+
+    with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance):
+        with patch('tksessentials.database.NewTopic', return_value="topic_spec") as new_topic_cls:
+            await database.create_topic("test_topic", compacted=True, cleanup_policy="delete")
+
+    kwargs = new_topic_cls.call_args.kwargs
+    assert kwargs["topic_configs"]["cleanup.policy"] == "delete,compact"
 
 
 @pytest.mark.asyncio
