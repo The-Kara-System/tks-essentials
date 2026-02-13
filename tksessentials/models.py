@@ -232,6 +232,8 @@ class TradingSignalReceived(TradingSignalEvent):
 
 
 class ReasonForRejection(str, Enum):
+    STRATEGY_PRM_REJECTED = "strategy_prm_rejected"
+    PRM_REJECTED = "prm_rejected"
     NOT_AUTHENTICATED = "not_authenticated"
     SCAM = "scam"
     DOS_ATTACK = "dos_attack"
