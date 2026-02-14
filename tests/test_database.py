@@ -408,8 +408,10 @@ async def test_snapshot_returns_latest_value_for_same_key(monkeypatch):
         def __init__(self, topic, partition):
             self.topic = topic
             self.partition = partition
+
         def __hash__(self):
             return hash((self.topic, self.partition))
+
         def __eq__(self, other):
             return (self.topic, self.partition) == (other.topic, other.partition)
 
@@ -464,7 +466,9 @@ async def test_snapshot_returns_latest_value_for_same_key(monkeypatch):
     monkeypatch.setattr(database, "AIOKafkaConsumer", FakeConsumer)
 
     class Logger:
+
         def warning(self, *_): pass
+
         def error(self, *_): pass
 
     snapshot = await database.read_compacted_state_snapshot(

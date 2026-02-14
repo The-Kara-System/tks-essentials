@@ -23,7 +23,7 @@ keywords = ["finance", "trading", "models"]
 
 dependencies = [
     "confluent-kafka>=2.4.0",
-    "aiokafka>=0.10.0",
+    "aiokafka>=0.13.0",
     "kafka_python>=2.0.2",
     "cryptography>=42.0.5",
     "email-validator>=2.1.1",
