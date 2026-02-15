@@ -58,6 +58,8 @@ tests/
 pytest
 ```
 
+`pytest` includes coverage reporting by default in this project.
+
 ### Run Specific Test Files
 
 ```bash
@@ -67,7 +69,7 @@ pytest tests/test_utils.py tests/test_validators.py
 ### Run with Coverage
 
 ```bash
-pytest --cov=tksessentials --cov-report=term-missing --cov-report=html
+pytest
 ```
 
 ### Run Verbose

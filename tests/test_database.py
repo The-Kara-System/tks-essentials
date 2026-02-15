@@ -327,6 +327,9 @@ async def test_create_topic_defaults():
     admin_instance.create_topics = AsyncMock(
         return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})
     )
+    admin_instance.describe_topics = AsyncMock(
+        return_value=[{"topic": "test_topic", "partitions": [{"partition": 0}]}]
+    )
     admin_instance.close = AsyncMock()
 
     with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance) as admin_cls:
@@ -351,6 +354,9 @@ async def test_create_topic_compacted():
     admin_instance.create_topics = AsyncMock(
         return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})
     )
+    admin_instance.describe_topics = AsyncMock(
+        return_value=[{"topic": "test_topic", "partitions": [{"partition": 0}]}]
+    )
     admin_instance.close = AsyncMock()
 
     with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance):
@@ -370,6 +376,9 @@ async def test_create_topic_dual_cleanup_policy_string():
     admin_instance.create_topics = AsyncMock(
         return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})
     )
+    admin_instance.describe_topics = AsyncMock(
+        return_value=[{"topic": "test_topic", "partitions": [{"partition": 0}]}]
+    )
     admin_instance.close = AsyncMock()
 
     with patch('tksessentials.database.AIOKafkaAdminClient', return_value=admin_instance):
@@ -386,6 +395,9 @@ async def test_create_topic_compacted_true_keeps_compact_when_cleanup_policy_del
     admin_instance.start = AsyncMock()
     admin_instance.create_topics = AsyncMock(
         return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})
+    )
+    admin_instance.describe_topics = AsyncMock(
+        return_value=[{"topic": "test_topic", "partitions": [{"partition": 0}]}]
     )
     admin_instance.close = AsyncMock()
 

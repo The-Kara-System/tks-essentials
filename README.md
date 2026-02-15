@@ -13,7 +13,7 @@ Expected to run for `Python 3+`.
 ## Development
 
 ### Testing
-Run tests with `pytest -s -vv` to see all the details.
+Run tests with `pytest -s -vv` to see all details. Coverage is enabled by default when running `pytest`.
 
 ### Installation as Consuming Developer
 
@@ -61,7 +61,7 @@ pip3 install pip-autoremove
 ### Testing
 Before running the tests, make sure that `utils.py` can find the root directory. Either set the
 `PROJECT_ROOT` environment variable to the root directory, or create a `config` or `logs` directory
-within the project root. Then run `pytest`.
+within the project root. Then run `pytest` (coverage runs automatically).
 
 ### Build Library
 Prerequisite: make sure that you give your Operating System user the right to modify files in the

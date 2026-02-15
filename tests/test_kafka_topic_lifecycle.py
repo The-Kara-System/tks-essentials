@@ -18,19 +18,23 @@ def _normalize_brokers(brokers: list[str] | str) -> list[str]:
     return brokers
 
 
-async def _wait_for_topic(topic_name: str, should_exist: bool) -> None:
+async def _wait_for_topic(topic_name: str, should_exist: bool) -> dict | None:
     deadline = time.monotonic() + DEFAULT_TIMEOUT_SECONDS
+    last_metadata = None
     while time.monotonic() < deadline:
         metadata = await _get_topic_metadata(topic_name)
+        last_metadata = metadata
         if should_exist:
             if metadata and metadata.get("error_code", 0) == 0 and metadata.get("partitions"):
-                return
+                return metadata
         else:
             if not metadata or metadata.get("error_code", 0) != 0 or not metadata.get("partitions"):
-                return
+                return metadata
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
     state = "exist" if should_exist else "be deleted"
-    raise AssertionError(f"Timed out waiting for topic {topic_name} to {state}.")
+    raise AssertionError(
+        f"Timed out waiting for topic {topic_name} to {state}. Last metadata: {last_metadata}"
+    )
 
 
 async def _get_topic_configs(topic_name: str) -> dict:
@@ -169,8 +173,7 @@ async def test_replication_factor_explicit_two():
     await asyncio.sleep(10)  # Allow some time for the topic to be fully created before checking metadata
 
     try:
-        await _wait_for_topic(topic_name, should_exist=True)
-        metadata = await _get_topic_metadata(topic_name)
+        metadata = await _wait_for_topic(topic_name, should_exist=True)
         configs = await _get_topic_configs(topic_name)
         print(f"Topic metadata for {topic_name}: {metadata}")
         print(f"Topic configs for {topic_name}: {configs}")
@@ -188,8 +191,7 @@ async def test_replication_factor_default_two():
     await database.create_topic(topic_name)
 
     try:
-        await _wait_for_topic(topic_name, should_exist=True)
-        metadata = await _get_topic_metadata(topic_name)
+        metadata = await _wait_for_topic(topic_name, should_exist=True)
         configs = await _get_topic_configs(topic_name)
         print(f"Topic metadata for {topic_name}: {metadata}")
         print(f"Topic configs for {topic_name}: {configs}")
@@ -207,8 +209,7 @@ async def test_replication_factor_three():
     await database.create_topic(topic_name, replication_factor=3)
 
     try:
-        await _wait_for_topic(topic_name, should_exist=True)
-        metadata = await _get_topic_metadata(topic_name)
+        metadata = await _wait_for_topic(topic_name, should_exist=True)
         configs = await _get_topic_configs(topic_name)
         print(f"Topic metadata for {topic_name}: {metadata}")
         print(f"Topic configs for {topic_name}: {configs}")
@@ -227,8 +228,7 @@ async def test_partitions_default_six():
     await asyncio.sleep(10)  # Allow some time for the topic to be fully created before checking metadata
 
     try:
-        await _wait_for_topic(topic_name, should_exist=True)
-        metadata = await _get_topic_metadata(topic_name)
+        metadata = await _wait_for_topic(topic_name, should_exist=True)
         configs = await _get_topic_configs(topic_name)
         print(f"Topic metadata for {topic_name}: {metadata}")
         print(f"Topic configs for {topic_name}: {configs}")
@@ -246,8 +246,7 @@ async def test_partitions_custom_three():
     await database.create_topic(topic_name, partitions=3)
 
     try:
-        await _wait_for_topic(topic_name, should_exist=True)
-        metadata = await _get_topic_metadata(topic_name)
+        metadata = await _wait_for_topic(topic_name, should_exist=True)
         configs = await _get_topic_configs(topic_name)
         print(f"Topic metadata for {topic_name}: {metadata}")
         print(f"Topic configs for {topic_name}: {configs}")

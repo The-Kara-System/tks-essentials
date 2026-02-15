@@ -50,6 +50,10 @@ Homepage = "https://github.com/The-Kara-System/tks-essentials"
 [tool.setuptools]
 packages = ["tksessentials"]
 
+[tool.pytest.ini_options]
+addopts = "--cov=tksessentials --cov-report=term-missing --cov-report=html --cov-fail-under=80"
+asyncio_default_fixture_loop_scope = "function"
+
 
 [tool.bumpver]
 current_version = "0.1.35"
