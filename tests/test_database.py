@@ -122,11 +122,11 @@ async def test_prepare_sql_statement():
     );
     """
 
-    with patch('tksessentials.database.topic_exists', return_value=True):
+    with patch('tksessentials.database._topic_exists_with_retry', AsyncMock(return_value=True)):
         prepared_statement = await database.prepare_sql_statement(sql_statement)
         assert "PARTITIONS=6" not in prepared_statement
 
-    with patch('tksessentials.database.topic_exists', return_value=False):
+    with patch('tksessentials.database._topic_exists_with_retry', AsyncMock(return_value=False)):
         prepared_statement = await database.prepare_sql_statement(sql_statement)
         assert "PARTITIONS=6" in prepared_statement
 
@@ -163,11 +163,11 @@ async def test_prepare_sql_statement_missing():
     );
     """
 
-    with patch('tksessentials.database.topic_exists', return_value=True):
+    with patch('tksessentials.database._topic_exists_with_retry', AsyncMock(return_value=True)):
         prepared_statement = await database.prepare_sql_statement(sql_statement)
         assert "PARTITIONS=6" not in prepared_statement
 
-    with patch('tksessentials.database.topic_exists', return_value=False):
+    with patch('tksessentials.database._topic_exists_with_retry', AsyncMock(return_value=False)):
         prepared_statement = await database.prepare_sql_statement(sql_statement)
         assert "PARTITIONS=6" in prepared_statement
 

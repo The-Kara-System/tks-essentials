@@ -53,6 +53,7 @@ async def test_create_table():
         replication_factor=1,
         compacted=True,
     )
+    await _wait_for_topic(topic_name)
 
     sql_statement = f"""
     CREATE TABLE {table_name}(
@@ -86,6 +87,7 @@ async def test_create_stream():
         partitions=1,
         replication_factor=1,
     )
+    await _wait_for_topic(topic_name)
 
     sql_statement = f"""
     CREATE STREAM {stream_name}(

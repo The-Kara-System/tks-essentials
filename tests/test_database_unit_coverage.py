@@ -89,6 +89,35 @@ async def test_topic_exists_starts_and_stops_consumer(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_topic_exists_with_retry_eventual_success(monkeypatch):
+    attempts = iter([False, False, True])
+    sleep = AsyncMock(return_value=None)
+
+    async def fake_topic_exists(topic_name):
+        return next(attempts)
+
+    monkeypatch.setattr(database, "topic_exists", fake_topic_exists)
+    monkeypatch.setattr(database.asyncio, "sleep", sleep)
+
+    assert await database._topic_exists_with_retry("topic_a", attempts=3, delay_s=0.1) is True
+    assert sleep.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_topic_exists_with_retry_returns_false_after_exhaustion(monkeypatch):
+    sleep = AsyncMock(return_value=None)
+
+    async def fake_topic_exists(topic_name):
+        return False
+
+    monkeypatch.setattr(database, "topic_exists", fake_topic_exists)
+    monkeypatch.setattr(database.asyncio, "sleep", sleep)
+
+    assert await database._topic_exists_with_retry("topic_a", attempts=3, delay_s=0.1) is False
+    assert sleep.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_get_default_kafka_producer_serializers(monkeypatch):
     class SampleModel(pydantic.BaseModel):
         name: str

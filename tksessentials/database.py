@@ -116,6 +116,20 @@ async def topic_exists(topic_name):
     finally:
         await consumer.stop()
 
+
+async def _topic_exists_with_retry(
+    topic_name: str,
+    attempts: int = 5,
+    delay_s: float = 1.0,
+) -> bool:
+    """Recheck topic visibility briefly to absorb Kafka metadata propagation lag."""
+    for attempt in range(attempts):
+        if await topic_exists(topic_name):
+            return True
+        if attempt < attempts - 1:
+            await asyncio.sleep(delay_s)
+    return False
+
 def compose_producer_id() -> str:
     """Creates a unique producer id: the pod_name."""
     return utils.get_pod_name()
@@ -244,7 +258,7 @@ async def prepare_sql_statement(sql_statement: str) -> str:
     if kafka_topic_match:
         partitions_match = re.search(r"PARTITIONS\s*=\s*\d+", sql_statement, re.IGNORECASE)
         kafka_topic = kafka_topic_match.group(1)
-        if await topic_exists(kafka_topic):
+        if await _topic_exists_with_retry(kafka_topic):
             logger.info(f"Kafka topic {kafka_topic} exists.")
             if partitions_match:
                 sql_statement = re.sub(r",?\s*PARTITIONS\s*=\s*\d+", "", sql_statement)
