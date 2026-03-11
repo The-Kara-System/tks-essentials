@@ -62,6 +62,28 @@ def _normalize_broker_list(value: str | List[str] | None) -> List[str]:
     return parts or ["localhost:9092"]
 
 
+def _normalize_ksqldb_nodes(value: str | List[str] | None) -> List[str]:
+    """Normalize ksqlDB node configuration without changing the public contract.
+
+    Supported inputs remain additive:
+    - a single URL string, e.g. "http://localhost:8088"
+    - a comma-separated string of URLs
+    - a list/tuple of URLs (mainly useful for tests or internal callers)
+    """
+    if value is None:
+        return ["http://localhost:8088"]
+    if isinstance(value, (list, tuple)):
+        cleaned = [str(v).strip().rstrip("/") for v in value if str(v).strip()]
+        return cleaned or ["http://localhost:8088"]
+    if not isinstance(value, str):
+        return ["http://localhost:8088"]
+    raw = value.strip()
+    if not raw or raw == "KSQLDB_NOT_DEFINED":
+        return ["http://localhost:8088"]
+    parts = [p.strip().rstrip("/") for p in raw.split(",") if p.strip()]
+    return parts or ["http://localhost:8088"]
+
+
 def get_kafka_cluster_brokers() -> List[str]:
     """Fetch the kafka broker array. This should return an array with nodes and ports.
     e.g. ['localhost:9092', 'localhost:9093']"""
@@ -182,14 +204,12 @@ def is_ksqldb_available() -> bool:
 
 def get_ksqldb_url(kafka_ksqldb_endpoint_literal: KafkaKSqlDbEndPoint = KafkaKSqlDbEndPoint.KSQL) -> str:
     if utils.get_environment().upper() in ["DEV", None]:
-        ksqldb_nodes: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
-        if ksqldb_nodes == "KSQLDB_NOT_DEFINED" or ksqldb_nodes == "":
-            ksqldb_nodes = ["http://localhost:8088"]
-        base_url = random.choice(ksqldb_nodes).rstrip('/')  # <<<< STRIP TRAILING SLASH
+        ksqldb_nodes = _normalize_ksqldb_nodes(os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED"))
+        base_url = random.choice(ksqldb_nodes)
         return f"{base_url}/{kafka_ksqldb_endpoint_literal.value}"
     else:
-        KSQLDB_STRING: str = os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED")
-        base_url = KSQLDB_STRING.rstrip('/')  # <<<< STRIP TRAILING SLASH
+        ksqldb_nodes = _normalize_ksqldb_nodes(os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED"))
+        base_url = ksqldb_nodes[0]
         return f"{base_url}/{kafka_ksqldb_endpoint_literal.value}"
 
 def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT) -> bool:

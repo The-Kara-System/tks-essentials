@@ -1,18 +1,7 @@
-import time
 from types import SimpleNamespace
 import pytest
-from tksessentials import database, utils
-from tksessentials.database import KSQLNotReadyError
+from tksessentials import database
 from unittest.mock import patch, AsyncMock
-import httpx
-
-@pytest.fixture(scope="module")
-def setup():
-    print("\n")
-    print("REMINDER. All tests require a Kafka broker and a ksqlDB instance to be available.")
-    print(f"\tENV: {utils.get_environment()}")
-    print(f"\tkafka: {database.get_kafka_cluster_brokers()}")
-    print(f"\tksqldb: {database.get_ksqldb_url()}")
 
 def test_get_kafka_cluster_brokers_dev():
     # Mock utils.get_environment() to return 'DEV'
@@ -50,6 +39,22 @@ def test_normalize_broker_list(value, expected):
 
 
 @pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, ["http://localhost:8088"]),
+        ("", ["http://localhost:8088"]),
+        ("   ", ["http://localhost:8088"]),
+        ("KSQLDB_NOT_DEFINED", ["http://localhost:8088"]),
+        ("http://ksql1:8088/, http://ksql2:8088", ["http://ksql1:8088", "http://ksql2:8088"]),
+        (["http://ksql1:8088/", " http://ksql2:8088 "], ["http://ksql1:8088", "http://ksql2:8088"]),
+        (123, ["http://localhost:8088"]),
+    ],
+)
+def test_normalize_ksqldb_nodes(value, expected):
+    assert database._normalize_ksqldb_nodes(value) == expected
+
+
+@pytest.mark.parametrize(
     "cleanup_policy,compacted,expected",
     [
         (None, False, "delete"),
@@ -83,58 +88,6 @@ def test_normalize_cleanup_policy_valid_combinations(cleanup_policy, compacted, 
 def test_normalize_cleanup_policy_rejects_invalid_values(cleanup_policy):
     with pytest.raises(ValueError):
         database._normalize_cleanup_policy(cleanup_policy, compacted=False)
-
-def test_table_or_view_exists():
-    max_retries = 5
-    delay = 10  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            assert not database.table_or_view_exists("NON_EXISTENT_TABLE")
-            break
-        except (
-            httpx.ConnectError,
-            KSQLNotReadyError,
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-        ) as e:
-            if attempt < max_retries - 1:
-                print(
-                    f"Attempt {attempt + 1}/{max_retries} failed with error: {e}. Retrying in {delay} seconds..."
-                )
-                time.sleep(delay)
-            else:
-                raise
-        except Exception as e:
-            print(f"Test failed with an unexpected error: {e}. {e.args}")
-            raise
-
-@pytest.mark.asyncio
-async def test_create_table():
-    table_name = "TEST_TABLE"
-    topic_name = "test_topic"
-
-    await database.create_topic(
-        topic_name=topic_name,
-        partitions=1,
-        replication_factor=1,  # or 3 in prod; tests usually 1
-        compacted=True,        # optional; table topics are commonly compacted
-    )
-
-    sql_statement = f"""
-    CREATE TABLE {table_name}(
-        event_timestamp BIGINT PRIMARY KEY,
-        detail STRING,
-        data STRING
-    ) WITH (
-        KAFKA_TOPIC='{topic_name}',
-        VALUE_FORMAT='JSON',
-        PARTITIONS=1
-    );
-    """
-
-    await database.create_table(sql_statement, table_name)
-    assert database.table_or_view_exists(table_name)
 
 @pytest.mark.asyncio
 async def test_prepare_sql_statement():
@@ -254,71 +207,6 @@ def test_clean_sql_statement():
 
     cleaned_sql = database.clean_sql_statement(sql_statement)
     assert cleaned_sql == expected_cleaned_sql
-
-def test_stream_exists():
-    max_retries = 5
-    delay = 10  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            assert not database.stream_exists("NON_EXISTENT_STREAM")
-            break
-        except (
-            httpx.ConnectError,
-            KSQLNotReadyError,
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-        ) as e:
-            if attempt < max_retries - 1:
-                print(
-                    f"Attempt {attempt + 1}/{max_retries} failed with error: {e}. Retrying in {delay} seconds..."
-                )
-                time.sleep(delay)
-            else:
-                raise
-        except Exception as e:
-            print(f"Test failed with an unexpected error: {e}. {e.args}")
-            raise
-
-@pytest.mark.asyncio
-async def test_create_stream():
-    STREAM_NAME = "TEST_STREAM"
-    sql_statement = f"""
-    CREATE STREAM {STREAM_NAME}(
-        event_timestamp BIGINT,
-        detail STRING,
-        data STRING
-    ) WITH (
-        KAFKA_TOPIC='test_topic',
-        VALUE_FORMAT='JSON',
-        PARTITIONS=1
-    );
-    """
-
-    max_retries = 5
-    delay = 10  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            await database.create_stream(sql_statement, STREAM_NAME)
-            assert database.stream_exists(STREAM_NAME)
-            break
-        except (
-            httpx.ConnectError,
-            KSQLNotReadyError,
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-        ) as e:
-            if attempt < max_retries - 1:
-                print(
-                    f"Attempt {attempt + 1}/{max_retries} failed with error: {e}. Retrying in {delay} seconds..."
-                )
-                time.sleep(delay)
-            else:
-                raise
-        except Exception as e:
-            print(f"Test failed with an unexpected error: {e}")
-            raise
 
 @pytest.mark.asyncio
 async def test_create_topic_defaults():

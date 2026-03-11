@@ -1,79 +1,117 @@
 # tks-essentials
-A library with essentials needed in every backend python app. e.g. logging, local db connection, filtering, formatting etc.
+
+A library with essentials needed in every backend Python app, including logging, local database connection helpers, filtering, and formatting utilities.
 
 ## Sponsors
+
 Freya Alpha,
 The Kára System,
 Spark & Hale Robotic Industries
 
-## General
-Run and compiled for `Python 3.12.9`.
-Expected to run for `Python 3+`.
+## Requirements
 
-## Development
+This package currently requires `Python 3.12.9` or newer.
 
-### Testing
-Run tests with `pytest -s -vv` to see all details. Coverage is enabled by default when running `pytest`.
+## Installation
 
-### Installation as Consuming Developer
+Install from PyPI:
 
-Simply run: `pip install tks-essentials`
+```powershell
+python -m pip install tks-essentials
+```
 
-Import in modules without the dash (e.g.):
+Import the package without the dash:
+
 ```python
 from tksessentials import global_logger
 ```
 
+## Development
+
 ### Setup as Contributor
+
 Create the virtual environment:
-```
+
+```powershell
 py -m venv .venv
 ```
-Start the environment:
-```
-./.venv/Scripts/activate
-```
-(or allow VS Code to start it). Use `deactivate` to stop it.
 
-All the required libraries must be listed in `requirements.txt` and installed by
+Activate it in PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
 ```
+
+Install runtime dependencies:
+
+```powershell
 python -m pip install -r .\requirements.txt
 ```
-For dev use:
-```
+
+Install dev dependencies:
+
+```powershell
 python -m pip install -r .\requirements-dev.txt
 ```
 
-To cleanup the environment run:
-```
+`requirements-dev.txt` already includes `requirements.txt`, so the dev file alone is enough for local development and testing.
+
+To clean up the environment:
+
+```powershell
 pip3 freeze > to-uninstall.txt
-```
- and then
-```
 pip3 uninstall -y -r to-uninstall.txt
 ```
 
-or 
-```
-pip3 install pip-autoremove
+### Testing
+
+Before running tests, make sure `utils.py` can find the project root. Either set the `PROJECT_ROOT` environment variable to the repository root, or create a `config` or `logs` directory there.
+
+Run the unit suite:
+
+```powershell
+python -m pytest
 ```
 
-### Testing
-Before running the tests, make sure that `utils.py` can find the root directory. Either set the
-`PROJECT_ROOT` environment variable to the root directory, or create a `config` or `logs` directory
-within the project root. Then run `pytest` (coverage runs automatically).
+Integration tests live in `tests/int`. They automatically start the Docker Compose stack in `tests/docker-compose.yaml`, wait for a 3-broker Kafka cluster plus ksqlDB to become ready, and tear the stack down when the test session ends.
+
+Run the integration suite:
+
+```powershell
+python -m pytest tests/int
+```
+
+If you want unit-test coverage locally:
+
+```powershell
+python -m pytest --cov=tksessentials --cov-report=term-missing --cov-report=html --cov-fail-under=80
+```
 
 ### Build Library
-Prerequisite: make sure that you give your Operating System user the right to modify files in the
-`python` directory (where Python is installed). Use:
+
+This repository is built from `pyproject.toml`. There is no `setup.py`, so `python setup.py bdist_wheel` is not the correct build command anymore.
+
+Install the build frontend:
+
+```powershell
+python -m pip install build
 ```
-python setup.py bdist_wheel
+
+Build source and wheel distributions:
+
+```powershell
+python -m build
 ```
-to create the `dist`, `build`, and `.eggs` folders.
 
+Artifacts are written to `dist/`.
 
-## Releasing a new version / CICD Process
+Validate the generated packages in PowerShell:
 
-This is entirely executed with Github Actions.
+```powershell
+$dist = Get-ChildItem .\dist | ForEach-Object { $_.FullName }
+python -m twine check $dist
+```
 
-Visual Studio Code --> GitHub Actions --> Build within Github Actions --> Uploaded by Github Actions to pypi.org.
+## Releasing a New Version / CI/CD Process
+
+GitHub Actions runs the release flow. The workflow installs `.[dev]`, builds with `python -m build`, validates the distributions, and publishes them to PyPI.

@@ -8,6 +8,9 @@ from aiokafka.admin.config_resource import ConfigResource, ConfigResourceType
 
 from tksessentials import database
 
+
+pytestmark = pytest.mark.integration
+
 DEFAULT_TIMEOUT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 1
 
@@ -101,11 +104,12 @@ async def _get_cluster_metadata() -> dict:
 
 
 async def _require_min_brokers(min_brokers: int) -> int:
+    assert await database.is_kafka_available(), "Kafka should be available for integration tests."
+
     cluster = await _get_cluster_metadata()
     brokers = cluster.get("brokers", [])
     broker_count = len(brokers)
-    if broker_count < min_brokers:
-        pytest.skip(f"Requires at least {min_brokers} brokers; found {broker_count}.")
+    assert broker_count >= min_brokers, f"Requires at least {min_brokers} brokers; found {broker_count}."
     bootstrap_brokers = _normalize_brokers(database.get_kafka_cluster_brokers())
     advertised_brokers = {f"{broker.get('host')}:{broker.get('port')}" for broker in brokers}
     print(f"Bootstrap brokers: {bootstrap_brokers}")
@@ -170,7 +174,7 @@ async def test_replication_factor_explicit_two():
     await _require_min_brokers(3)
     topic_name = f"replication_two_{uuid.uuid4().hex}"
     await database.create_topic(topic_name, replication_factor=2)
-    await asyncio.sleep(10)  # Allow some time for the topic to be fully created before checking metadata
+    await asyncio.sleep(10)
 
     try:
         metadata = await _wait_for_topic(topic_name, should_exist=True)
@@ -182,7 +186,7 @@ async def test_replication_factor_explicit_two():
     finally:
         await _delete_topic(topic_name)
         await _wait_for_topic(topic_name, should_exist=False)
-        
+
 
 @pytest.mark.asyncio
 async def test_replication_factor_default_two():
@@ -225,7 +229,7 @@ async def test_partitions_default_six():
     await _require_min_brokers(3)
     topic_name = f"partitions_default_{uuid.uuid4().hex}"
     await database.create_topic(topic_name)
-    await asyncio.sleep(10)  # Allow some time for the topic to be fully created before checking metadata
+    await asyncio.sleep(10)
 
     try:
         metadata = await _wait_for_topic(topic_name, should_exist=True)

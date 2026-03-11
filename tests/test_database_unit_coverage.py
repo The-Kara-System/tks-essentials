@@ -165,6 +165,38 @@ def test_get_ksqldb_url_non_dev_branch(monkeypatch):
     assert url == "http://ksql.prod:8088/info"
 
 
+def test_get_ksqldb_url_dev_branch_uses_normalized_nodes(monkeypatch):
+    monkeypatch.setattr(database.utils, "get_environment", lambda: "DEV")
+    monkeypatch.setenv("KSQLDB_STRING", "http://ksql.dev:8088/")
+    monkeypatch.setattr(database.random, "choice", lambda values: values[0])
+
+    url = database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)
+    assert url == "http://ksql.dev:8088/info"
+
+
+def test_get_ksqldb_url_dev_branch_supports_comma_separated_nodes(monkeypatch):
+    monkeypatch.setattr(database.utils, "get_environment", lambda: "DEV")
+    monkeypatch.setenv(
+        "KSQLDB_STRING",
+        "http://ksql-a.dev:8088/,http://ksql-b.dev:8088/",
+    )
+    monkeypatch.setattr(database.random, "choice", lambda values: values[-1])
+
+    url = database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)
+    assert url == "http://ksql-b.dev:8088/info"
+
+
+def test_get_ksqldb_url_non_dev_branch_uses_first_node_from_comma_separated_config(monkeypatch):
+    monkeypatch.setattr(database.utils, "get_environment", lambda: "PROD")
+    monkeypatch.setenv(
+        "KSQLDB_STRING",
+        "http://ksql-a.prod:8088/,http://ksql-b.prod:8088/",
+    )
+
+    url = database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)
+    assert url == "http://ksql-a.prod:8088/info"
+
+
 def test_table_or_view_exists_ready_error():
     response = _Response(status_code=503, text="KSQL is not yet ready to serve requests.")
     with patch("tksessentials.database.httpx.post", return_value=response):

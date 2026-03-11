@@ -8,13 +8,14 @@ from aiokafka.admin.config_resource import ConfigResource, ConfigResourceType
 
 from tksessentials import database
 
+pytestmark = pytest.mark.integration
+
 DEFAULT_TIMEOUT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 1
 
 
 async def _require_kafka() -> None:
-    if not await database.is_kafka_available():
-        pytest.skip("Kafka is not available for integration tests.")
+    assert await database.is_kafka_available(), "Kafka should be available for integration tests."
 
 
 async def _wait_for_topic(topic_name: str, should_exist: bool) -> None:
