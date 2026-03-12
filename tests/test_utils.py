@@ -1,5 +1,6 @@
 import os
 import pathlib
+import sys
 import pytest
 import socket
 import yaml
@@ -417,3 +418,54 @@ def test_initialize_project_root(monkeypatch, tmp_path):
     finally:
         # Restore original value
         utils.PROJECT_ROOT = original_root
+
+
+def test_initialize_project_root_prefers_cwd_over_library_path(monkeypatch, tmp_path):
+    original_root = utils.PROJECT_ROOT
+    original_main_file = getattr(sys.modules["__main__"], "__file__", None)
+
+    try:
+        (tmp_path / "config").mkdir()
+        monkeypatch.delenv("PROJECT_ROOT", raising=False)
+        monkeypatch.setattr(os, "getcwd", lambda: str(tmp_path))
+        monkeypatch.delattr(sys.modules["__main__"], "__file__", raising=False)
+        monkeypatch.setattr(os.path, "dirname", lambda _: "C:\\")
+        monkeypatch.setattr(os.path, "abspath", lambda _: "C:\\")
+
+        utils.initialize_project_root()
+
+        assert utils.PROJECT_ROOT == tmp_path
+        assert pathlib.Path(os.environ["PROJECT_ROOT"]) == tmp_path
+    finally:
+        utils.PROJECT_ROOT = original_root
+        if original_main_file is None:
+            monkeypatch.delattr(sys.modules["__main__"], "__file__", raising=False)
+        else:
+            monkeypatch.setattr(sys.modules["__main__"], "__file__", original_main_file, raising=False)
+
+
+def test_initialize_project_root_uses_main_script_path(monkeypatch, tmp_path):
+    original_root = utils.PROJECT_ROOT
+    original_main_file = getattr(sys.modules["__main__"], "__file__", None)
+    app_root = tmp_path / "app"
+    src_dir = app_root / "src"
+
+    try:
+        (app_root / "config").mkdir(parents=True)
+        src_dir.mkdir()
+        monkeypatch.delenv("PROJECT_ROOT", raising=False)
+        monkeypatch.setattr(os, "getcwd", lambda: str(tmp_path))
+        monkeypatch.setattr(sys.modules["__main__"], "__file__", str(src_dir / "main.py"))
+        monkeypatch.setattr(os.path, "dirname", lambda _: "C:\\")
+        monkeypatch.setattr(os.path, "abspath", lambda _: "C:\\")
+
+        utils.initialize_project_root()
+
+        assert utils.PROJECT_ROOT == app_root
+        assert pathlib.Path(os.environ["PROJECT_ROOT"]) == app_root
+    finally:
+        utils.PROJECT_ROOT = original_root
+        if original_main_file is None:
+            monkeypatch.delattr(sys.modules["__main__"], "__file__", raising=False)
+        else:
+            monkeypatch.setattr(sys.modules["__main__"], "__file__", original_main_file, raising=False)

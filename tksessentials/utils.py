@@ -1,10 +1,37 @@
+import __main__
 import os
 import pathlib
+import sys
 from pathlib import Path
 import socket
 import yaml
 
 PROJECT_ROOT = None
+
+
+def _normalize_search_path(candidate: str | Path | None) -> pathlib.Path | None:
+    if not candidate:
+        return None
+    path_candidate = pathlib.Path(candidate).resolve()
+    return path_candidate.parent if path_candidate.is_file() else path_candidate
+
+
+def _get_project_root_search_paths() -> list[pathlib.Path]:
+    candidates: list[pathlib.Path] = []
+    main_file = getattr(__main__, "__file__", None)
+    raw_candidates = [
+        os.getcwd(),
+        main_file,
+        sys.path[0] if sys.path else None,
+        pathlib.Path(os.path.abspath(os.path.dirname(__file__))).resolve(),
+    ]
+
+    for candidate in raw_candidates:
+        normalized = _normalize_search_path(candidate)
+        if normalized is None or normalized in candidates:
+            continue
+        candidates.append(normalized)
+    return candidates
 
 # Determine the project root path when the module is loaded
 def find_project_root(current_path: pathlib.Path, max_depth: int = 10) -> pathlib.Path:
@@ -29,7 +56,16 @@ def find_project_root(current_path: pathlib.Path, max_depth: int = 10) -> pathli
 # Initialize PROJECT_ROOT when the module is loaded
 def initialize_project_root():
     global PROJECT_ROOT
-    PROJECT_ROOT = find_project_root(pathlib.Path(os.path.abspath(os.path.dirname(__file__))).resolve())
+    last_error = None
+    for candidate_path in _get_project_root_search_paths():
+        try:
+            PROJECT_ROOT = find_project_root(candidate_path)
+            os.environ.setdefault("PROJECT_ROOT", str(PROJECT_ROOT))
+            return
+        except FileNotFoundError as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
 
 initialize_project_root()
 
