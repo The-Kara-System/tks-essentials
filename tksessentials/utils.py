@@ -12,8 +12,12 @@ PROJECT_ROOT = None
 def _normalize_search_path(candidate: str | Path | None) -> pathlib.Path | None:
     if not candidate:
         return None
-    path_candidate = pathlib.Path(candidate).resolve()
-    return path_candidate.parent if path_candidate.is_file() else path_candidate
+    path_candidate = pathlib.Path(candidate).expanduser()
+    if not path_candidate.is_absolute():
+        path_candidate = pathlib.Path.cwd() / path_candidate
+    if path_candidate.exists():
+        return path_candidate.parent if path_candidate.is_file() else path_candidate
+    return path_candidate.parent if path_candidate.suffix else path_candidate
 
 
 def _get_project_root_search_paths() -> list[pathlib.Path]:
@@ -23,7 +27,7 @@ def _get_project_root_search_paths() -> list[pathlib.Path]:
         os.getcwd(),
         main_file,
         sys.path[0] if sys.path else None,
-        pathlib.Path(os.path.abspath(os.path.dirname(__file__))).resolve(),
+        pathlib.Path(__file__).resolve().parent,
     ]
 
     for candidate in raw_candidates:
@@ -60,7 +64,7 @@ def initialize_project_root():
     for candidate_path in _get_project_root_search_paths():
         try:
             PROJECT_ROOT = find_project_root(candidate_path)
-            os.environ.setdefault("PROJECT_ROOT", str(PROJECT_ROOT))
+            os.environ["PROJECT_ROOT"] = str(PROJECT_ROOT)
             return
         except FileNotFoundError as exc:
             last_error = exc
