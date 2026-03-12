@@ -173,7 +173,7 @@ async def test_prepare_sql_statement_missing():
 
 def test_clean_sql_statement():
     sql_statement = """
-    CREATE TABLE fa_signal_processing_trading_signal_received(
+    CREATE TABLE fa_signal_processing_trading_signal_created(
         event_timestamp BIGINT PRIMARY KEY,
         detail STRING,
         data STRING,
@@ -196,14 +196,14 @@ def test_clean_sql_statement():
         >,
         ip STRING
     ) WITH (
-        KAFKA_TOPIC='fa_signal_processing.trading_signal_received',
+        KAFKA_TOPIC='fa_signal_processing.trading_signal_created',
         VALUE_FORMAT='JSON',
         TIMESTAMP='event_timestamp',
         PARTITIONS=6
     );
     """
 
-    expected_cleaned_sql = "CREATE TABLE fa_signal_processing_trading_signal_received( event_timestamp BIGINT PRIMARY KEY, detail STRING, data STRING, signal_data STRUCT< provider_signal_id STRING, provider_trade_id STRING, provider_id STRING, strategy_id STRING, is_hot_signal BOOLEAN, market STRING, data_source STRING, direction STRING, side STRING, order_type STRING, price DOUBLE, tp DOUBLE, sl DOUBLE, position_size_in_percentage INT, date_of_creation BIGINT >, ip STRING ) WITH ( KAFKA_TOPIC='fa_signal_processing.trading_signal_received', VALUE_FORMAT='JSON', TIMESTAMP='event_timestamp', PARTITIONS=6 );"
+    expected_cleaned_sql = "CREATE TABLE fa_signal_processing_trading_signal_created( event_timestamp BIGINT PRIMARY KEY, detail STRING, data STRING, signal_data STRUCT< provider_signal_id STRING, provider_trade_id STRING, provider_id STRING, strategy_id STRING, is_hot_signal BOOLEAN, market STRING, data_source STRING, direction STRING, side STRING, order_type STRING, price DOUBLE, tp DOUBLE, sl DOUBLE, position_size_in_percentage INT, date_of_creation BIGINT >, ip STRING ) WITH ( KAFKA_TOPIC='fa_signal_processing.trading_signal_created', VALUE_FORMAT='JSON', TIMESTAMP='event_timestamp', PARTITIONS=6 );"
 
     cleaned_sql = database.clean_sql_statement(sql_statement)
     assert cleaned_sql == expected_cleaned_sql

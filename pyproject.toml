@@ -46,10 +46,11 @@ dev = [
 Homepage = "https://github.com/The-Kara-System/tks-essentials"
 
 [tool.setuptools]
-packages = ["tksessentials"]
+packages = ["tksessentials", "tksessentials.data_models"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+addopts = "--cov=tksessentials --cov-report=term-missing --cov-report=html"
 markers = [
     "integration: tests that require Kafka and/or ksqlDB services",
 ]
