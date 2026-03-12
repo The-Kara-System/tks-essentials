@@ -116,7 +116,6 @@ def test_trading_signal_intent_properties_are_semantically_useful():
 
 def test_trading_signal_intent_defaults_signal_provider_to_tks():
     intent = TradingSignalIntent(
-        intent_id="intent-default",
         strategy_id="strategy-a",
         market="BTC/USDT",
         side=Side.BUY,
@@ -127,6 +126,21 @@ def test_trading_signal_intent_defaults_signal_provider_to_tks():
 
     assert intent.signal_provider.signal_provider_id == "tks"
     assert intent.signal_provider.signal_provider_name == "TKS"
+    assert intent.intent_id
+
+
+def test_trading_signal_grant_defaults_provider_signal_id_to_signal_id():
+    signal = TradingSignalIntent(
+        strategy_id="strategy-a",
+        market="BTC/USDT",
+        side=Side.BUY,
+        direction=Direction.LONG,
+        order_type=OrderType.MARKET,
+        size_pct=10.0,
+        created_at=100,
+    ).grant(signal_id="sig-default", prm_granted_at=150)
+
+    assert signal.signal_provider_signal_id == "sig-default"
 
 
 def test_trading_signal_intent_can_expire():

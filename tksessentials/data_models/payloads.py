@@ -2,6 +2,7 @@
 
 import time
 from typing import Any, Optional
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -35,7 +36,7 @@ class TradingSignalIntent(PayloadModel):
     Not: not yet a cross-service `TradingSignal`, not an order, and not a trade.
     """
 
-    intent_id: str
+    intent_id: str = Field(default_factory=lambda: str(uuid4()))
     signal_provider: SignalProvider = Field(default_factory=SignalProvider)
     signal_provider_signal_id: Optional[str] = None
     signal_provider_trade_id: Optional[str] = None
@@ -43,7 +44,7 @@ class TradingSignalIntent(PayloadModel):
     market: str
     side: Side
     direction: Direction
-    order_type: OrderType
+    order_type: OrderType = OrderType.LIMIT
     target_price: Optional[float] = None
     take_profit: Optional[float] = None
     stop_loss: Optional[float] = None
@@ -101,10 +102,14 @@ class TradingSignalIntent(PayloadModel):
     def grant(self, *, signal_id: str, prm_granted_at: int) -> "TradingSignal":
         """Materialize this intent as a publishable trading signal after PRM approval."""
 
+        payload = self.model_dump()
+        payload["signal_provider_signal_id"] = (
+            self.signal_provider_signal_id or signal_id
+        )
         return TradingSignal(
             signal_id=signal_id,
             prm_granted_at=prm_granted_at,
-            **self.model_dump(),
+            **payload,
         )
 
 
@@ -213,10 +218,14 @@ class TradingSignalIntentSpot(TradingSignalIntent):
     def grant(self, *, signal_id: str, prm_granted_at: int) -> "TradingSignalSpot":
         """Materialize this spot intent as a spot trading signal."""
 
+        payload = self.model_dump()
+        payload["signal_provider_signal_id"] = (
+            self.signal_provider_signal_id or signal_id
+        )
         return TradingSignalSpot(
             signal_id=signal_id,
             prm_granted_at=prm_granted_at,
-            **self.model_dump(),
+            **payload,
         )
 
 
@@ -231,10 +240,14 @@ class TradingSignalIntentFuture(TradingSignalIntent):
     def grant(self, *, signal_id: str, prm_granted_at: int) -> "TradingSignalFuture":
         """Materialize this futures intent as a futures trading signal."""
 
+        payload = self.model_dump()
+        payload["signal_provider_signal_id"] = (
+            self.signal_provider_signal_id or signal_id
+        )
         return TradingSignalFuture(
             signal_id=signal_id,
             prm_granted_at=prm_granted_at,
-            **self.model_dump(),
+            **payload,
         )
 
 
