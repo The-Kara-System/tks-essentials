@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tks-essentials"
-version = "0.1.39"
+version = "0.1.40"
 description = "Essentials for our TKS projects."
 readme = "README.md"
 authors = [{ name = "Brayan", email = "brayan@sparkandhale.com" }]
@@ -57,7 +57,7 @@ markers = [
 
 
 [tool.bumpver]
-current_version = "0.1.39"
+current_version = "0.1.40"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "bump version {old_version} -> {new_version}"
 commit = true
