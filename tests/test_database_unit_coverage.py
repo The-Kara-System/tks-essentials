@@ -176,7 +176,9 @@ async def test_get_default_kafka_consumer_deserializers(monkeypatch):
     assert consumer.kwargs["enable_auto_commit"] is False
     assert consumer.kwargs["auto_offset_reset"] == "earliest"
     assert consumer.kwargs["key_deserializer"](b"key-1") == "key-1"
+    assert consumer.kwargs["key_deserializer"](None) is None
     assert consumer.kwargs["value_deserializer"](b'{"ok": true}') == {"ok": True}
+    assert consumer.kwargs["value_deserializer"](None) is None
     assert consumer.started is True
 
 

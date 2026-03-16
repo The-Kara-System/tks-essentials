@@ -30,6 +30,20 @@ class KafkaKSqlDbEndPoint(str, Enum):
     CLUSTER_STATUS = "clusterStatus"
     IS_VALID_PROPERTY = "is_valid_property"
 
+
+def deserialize_kafka_key(key_bytes: bytes | None) -> str | None:
+    """Decode Kafka keys while preserving null keys."""
+    if key_bytes is None:
+        return None
+    return key_bytes.decode(DEFAULT_ENCODING)
+
+
+def deserialize_kafka_json_value(value_bytes: bytes | None):
+    """Decode JSON Kafka values while preserving tombstones."""
+    if value_bytes is None:
+        return None
+    return json.loads(value_bytes.decode(DEFAULT_ENCODING))
+
 async def is_kafka_available() -> bool:
     """
     Check if the Kafka brokers are available.
@@ -171,9 +185,6 @@ async def get_default_kafka_consumer(topics: str, client: str = compose_consumer
         : param auto_commit (True): Set auto_commit to False to control the commits yourself.
     """
 
-    def get_key_deserializer(key_bytes: bytes) -> str:
-        return key_bytes.decode(DEFAULT_ENCODING)
-
     brokers: List[str] = get_kafka_cluster_brokers()
     broker_str = ",".join(brokers)
     # Create the Producer instance
@@ -181,8 +192,8 @@ async def get_default_kafka_consumer(topics: str, client: str = compose_consumer
                                                   bootstrap_servers=broker_str,
                                                   client_id=client,
                                                   group_id=consumer_group,
-                                                  key_deserializer=lambda k: get_key_deserializer(k),
-                                                  value_deserializer=lambda v: json.loads(v.decode(DEFAULT_ENCODING)),
+                                                  key_deserializer=deserialize_kafka_key,
+                                                  value_deserializer=deserialize_kafka_json_value,
                                                   auto_offset_reset=auto_offset_reset,
                                                   enable_auto_commit=auto_commit)
     await consumer.start()
@@ -628,9 +639,8 @@ async def read_compacted_state_snapshot(
         group_id=group_id,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
-        # If you already deserialize in database.get_default_kafka_consumer, mirror that here.
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")) if v is not None else None,
-        key_deserializer=lambda k: k.decode("utf-8") if k is not None else None,
+        key_deserializer=deserialize_kafka_key,
+        value_deserializer=deserialize_kafka_json_value,
     )
 
     latest: dict[str, dict | None] = {}
