@@ -46,7 +46,7 @@ dev = [
 Homepage = "https://github.com/The-Kara-System/tks-essentials"
 
 [tool.setuptools]
-packages = ["tksessentials", "tksessentials.data_models"]
+packages = ["tksessentials", "tksessentials.data_models", "tksessentials.data_models.market_data"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
