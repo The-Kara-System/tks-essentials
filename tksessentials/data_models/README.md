@@ -7,6 +7,10 @@ It keeps business nouns, event facts, and read-side snapshots separate so the li
 
 ```text
 tksessentials.data_models
+├── market_data/
+│   ├── value_objects.py  # shared market-data enums
+│   ├── payloads.py       # shared market-data request and envelope models
+│   └── __init__.py       # shared market-data public API
 ├── value_objects.py   # enums and tiny reusable structs
 ├── payloads.py        # write-side business nouns
 ├── events.py          # immutable domain facts

@@ -30,6 +30,7 @@ from .events import (
     TradingSignalQualifiedHot,
     TradingSignalRejected,
 )
+from .market_data import EXCHANGE, MACD, OHLCV, REQUEST, REQUEST_TYPE, RSI, TIMEFRAME, MarketDataAssignment
 from .payloads import (
     OrderFill,
     OrderRequest,
@@ -59,12 +60,16 @@ from .value_objects import (
 )
 
 __all__ = [
+    "EXCHANGE",
     "AggregateType",
     "Direction",
     "DomainEvent",
     "FillEvent",
     "IntentStatus",
     "LiquidityType",
+    "MACD",
+    "MarketDataAssignment",
+    "OHLCV",
     "OrderCanceled",
     "OrderEvent",
     "OrderFill",
@@ -78,9 +83,13 @@ __all__ = [
     "OrderStatus",
     "OrderType",
     "ProfitRealized",
+    "REQUEST",
+    "REQUEST_TYPE",
+    "RSI",
     "Side",
     "SignalProvider",
     "SignalStatus",
+    "TIMEFRAME",
     "Trade",
     "TradeCanceled",
     "TradeClosed",
