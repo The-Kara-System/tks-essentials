@@ -212,6 +212,11 @@ python -m pip_audit -r requirements.txt -r requirements-dev.txt
 If integration tests fail, make sure Docker is running and the local project root is resolvable:
 
 ```powershell
+$env:PROJECT_ROOT = (Resolve-Path .).Path
+New-Item -ItemType Directory -Force -Path .\config, .\logs | Out-Null
+```
+
+```powershell
 python -m pytest --cov=tksessentials --cov-fail-under=80
 ```
 
