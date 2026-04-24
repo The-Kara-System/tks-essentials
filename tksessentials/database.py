@@ -165,6 +165,13 @@ def _contains_marker(response, marker: str) -> bool:
     return isinstance(text, str) and marker in text
 
 
+def _extract_topic_errors(admin_response: object) -> list[dict]:
+    if not isinstance(admin_response, dict):
+        return []
+    raw_errors = admin_response.get("topic_errors", [])
+    return raw_errors if isinstance(raw_errors, list) else []
+
+
 async def _flush_and_close_producer(producer) -> None:
     for method_name in ("flush", "stop"):
         method = getattr(producer, method_name, None)
@@ -279,13 +286,15 @@ def compose_producer_id() -> str:
     """Creates a unique producer id: the pod_name."""
     return utils.get_pod_name()
 
-async def get_default_kafka_producer(client_id: str = compose_producer_id()) -> AIOKafkaProducer:
+async def get_default_kafka_producer(client_id: str | None = None) -> AIOKafkaProducer:
     """ Caution: Always stop/close this producer when done.
         This default producer is expecting you to send json data, which it will then automatically
         serialize/encode with UTF-8.
         The key must be a posix timestamp (int in python, BIGINT in Kafka).
         Feel free to create your own kafka producer, if these default values do no suite the use case.
     """
+    if client_id is None:
+        client_id = compose_producer_id()
     brokers: List[str] = get_kafka_cluster_brokers()
     broker_str = ",".join(brokers)
 
@@ -309,12 +318,20 @@ async def get_default_kafka_producer(client_id: str = compose_producer_id()) -> 
     await producer.start()
     return producer
 
-async def get_default_kafka_consumer(topics: str, client: str = compose_consumer_id(), consumer_group: str = None, auto_commit: bool = True, auto_offset_reset='latest') -> AIOKafkaConsumer:
+async def get_default_kafka_consumer(
+    topics: str,
+    client: str | None = None,
+    consumer_group: str = None,
+    auto_commit: bool = True,
+    auto_offset_reset="latest",
+) -> AIOKafkaConsumer:
     """ Will return an async-capable consumer.
         However, you may create your own consumer with specific settings. This is only for convenience.
         The offset could be set to 'earliest'. Default is 'latest'.
         : param auto_commit (True): Set auto_commit to False to control the commits yourself.
     """
+    if client is None:
+        client = compose_consumer_id()
 
     brokers: List[str] = get_kafka_cluster_brokers()
     broker_str = ",".join(brokers)
@@ -704,10 +721,16 @@ async def create_topic(
         )
         # 3. Create it and validate result codes
         response = await admin.create_topics(new_topics=[new_topic], validate_only=False)
-        response_obj = response.to_object()
-        topic_errors = response_obj.get("topic_errors", [])
+        try:
+            response_to_object = response.to_object() if callable(getattr(response, "to_object", None)) else None
+        except Exception:
+            response_to_object = None
+
+        topic_errors = _extract_topic_errors(response_to_object)
         if topic_errors:
             for entry in topic_errors:
+                if not isinstance(entry, dict):
+                    continue
                 if entry.get("topic") != topic_name:
                     continue
                 error_code = entry.get("error_code", 0)
@@ -727,16 +750,24 @@ async def create_topic(
         max_wait = 30
         waited = 0
         poll = 1
+        describe_error_count = 0
+        max_describe_error_logs = 3
         while waited < max_wait:
             try:
                 obj = await admin.describe_topics([topic_name])
                 if obj and isinstance(obj, list):
                     for t in obj:
+                        if not isinstance(t, dict):
+                            continue
                         if t.get("topic") == topic_name and t.get("partitions"):
                             return
-            except Exception:
+            except Exception as exc:
                 # ignore transient errors while waiting for metadata
-                pass
+                if describe_error_count < max_describe_error_logs:
+                    describe_error_count += 1
+                    logger.debug(
+                        f"Transient error while waiting for metadata for topic '{topic_name}' (attempt {describe_error_count}): {exc}"
+                    )
             await asyncio.sleep(poll)
             waited += poll
     except TopicAlreadyExistsError:

@@ -148,6 +148,34 @@ async def test_get_default_kafka_producer_serializers(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_default_kafka_producer_resolves_client_id_at_call_time(monkeypatch):
+    class FakeProducer:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.started = False
+
+        async def start(self):
+            self.started = True
+
+    call_count = 0
+
+    def next_client_id():
+        nonlocal call_count
+        call_count += 1
+        return f"pod-{call_count}"
+
+    monkeypatch.setattr(database, "compose_producer_id", next_client_id)
+    monkeypatch.setattr(database, "get_kafka_cluster_brokers", lambda: ["broker1:9092"])
+    monkeypatch.setattr(database, "AIOKafkaProducer", FakeProducer)
+
+    producer_1 = await database.get_default_kafka_producer()
+    producer_2 = await database.get_default_kafka_producer()
+
+    assert producer_1.kwargs["client_id"] == "pod-1"
+    assert producer_2.kwargs["client_id"] == "pod-2"
+
+
+@pytest.mark.asyncio
 async def test_get_default_kafka_consumer_deserializers(monkeypatch):
     class FakeConsumer:
         def __init__(self, *args, **kwargs):
@@ -180,6 +208,36 @@ async def test_get_default_kafka_consumer_deserializers(monkeypatch):
     assert consumer.kwargs["value_deserializer"](b'{"ok": true}') == {"ok": True}
     assert consumer.kwargs["value_deserializer"](None) is None
     assert consumer.started is True
+
+
+@pytest.mark.asyncio
+async def test_get_default_kafka_consumer_resolves_client_id_at_call_time(monkeypatch):
+    class FakeConsumer:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+            self.started = False
+
+        async def start(self):
+            self.started = True
+
+    call_count = 0
+
+    def next_client_id():
+        nonlocal call_count
+        call_count += 1
+        return f"consumer-{call_count}"
+
+    monkeypatch.setattr(database, "compose_consumer_id", next_client_id)
+    monkeypatch.setattr(database, "get_kafka_cluster_brokers", lambda: ["broker1:9092"])
+    monkeypatch.setattr(database, "AIOKafkaConsumer", FakeConsumer)
+
+    consumer_1 = await database.get_default_kafka_consumer("topic-x")
+    consumer_2 = await database.get_default_kafka_consumer("topic-x")
+
+    assert consumer_1.kwargs["client_id"] == "consumer-1"
+    assert consumer_2.kwargs["client_id"] == "consumer-2"
+    assert consumer_1.started is True
+    assert consumer_2.started is True
 
 
 def test_bytes_to_int_big_endian():
@@ -604,6 +662,65 @@ async def test_create_topic_handles_non_matching_errors_and_transient_describe(m
         ),
         describe_topics=AsyncMock(
             side_effect=[RuntimeError("temporary"), [{"topic": "orders", "partitions": [0]}]]
+        ),
+        close=AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(database, "AIOKafkaAdminClient", lambda **kwargs: admin)
+    monkeypatch.setattr(database, "NewTopic", lambda **kwargs: "topic_spec")
+    monkeypatch.setattr(database, "get_kafka_cluster_brokers", lambda: ["broker:9092"])
+    monkeypatch.setattr(database.asyncio, "sleep", AsyncMock(return_value=None))
+
+    await database.create_topic("orders")
+    admin.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_topic_handles_non_dict_topic_error_response(monkeypatch):
+    admin = SimpleNamespace(
+        start=AsyncMock(return_value=None),
+        create_topics=AsyncMock(return_value=SimpleNamespace(to_object=lambda: None)),
+        describe_topics=AsyncMock(return_value=[{"topic": "orders", "partitions": [0]}]),
+        close=AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(database, "AIOKafkaAdminClient", lambda **kwargs: admin)
+    monkeypatch.setattr(database, "NewTopic", lambda **kwargs: "topic_spec")
+    monkeypatch.setattr(database, "get_kafka_cluster_brokers", lambda: ["broker:9092"])
+    monkeypatch.setattr(database.asyncio, "sleep", AsyncMock(return_value=None))
+
+    await database.create_topic("orders")
+    admin.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_topic_handles_non_list_topic_errors_shape(monkeypatch):
+    admin = SimpleNamespace(
+        start=AsyncMock(return_value=None),
+        create_topics=AsyncMock(
+            return_value=SimpleNamespace(to_object=lambda: {"topic_errors": {"topic": "orders", "error_code": 1}})
+        ),
+        describe_topics=AsyncMock(return_value=[{"topic": "orders", "partitions": [0]}]),
+        close=AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(database, "AIOKafkaAdminClient", lambda **kwargs: admin)
+    monkeypatch.setattr(database, "NewTopic", lambda **kwargs: "topic_spec")
+    monkeypatch.setattr(database, "get_kafka_cluster_brokers", lambda: ["broker:9092"])
+    monkeypatch.setattr(database.asyncio, "sleep", AsyncMock(return_value=None))
+
+    await database.create_topic("orders")
+    admin.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_topic_metadata_wait_handles_malformed_describe_payload(monkeypatch):
+    admin = SimpleNamespace(
+        start=AsyncMock(return_value=None),
+        create_topics=AsyncMock(return_value=SimpleNamespace(to_object=lambda: {"topic_errors": []})),
+        describe_topics=AsyncMock(
+            side_effect=[
+                {"topic": "orders", "partitions": [0]},
+                [{"topic": "orders", "partitions": []}, "not-a-dict"],
+                [{"topic": "orders", "partitions": [0]}],
+            ]
         ),
         close=AsyncMock(return_value=None),
     )

@@ -94,15 +94,19 @@ def get_secrets_path() -> Path:
 
 def get_app_config() -> dict:
     app_cfg = None
+    config_path = None
     try:
         project_root = find_project_root(pathlib.Path(os.getcwd()).resolve())
         config_path = project_root.joinpath("config/app_config.yaml")
         with open(config_path, "r") as ymlfile:
             app_cfg = yaml.safe_load(ymlfile)
-    except yaml.YAMLError as ex:
+    except (FileNotFoundError, OSError, yaml.YAMLError) as ex:
+        path_text = str(config_path) if config_path is not None else "unknown path"
         raise FileNotFoundError(
-            f"Failed to load the config/app_config.yaml file. Aborting the application. Error: {ex}"
+            f"Failed to load the config/app_config.yaml file at '{path_text}'. Aborting the application. Error: {ex}"
         )
+    if app_cfg is None or not isinstance(app_cfg, dict):
+        return {}
     return app_cfg
 
 def get_pod_name() -> str:

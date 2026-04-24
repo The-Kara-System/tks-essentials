@@ -232,6 +232,38 @@ def test_get_app_config_invalid_yaml(monkeypatch, tmp_path):
     assert "Failed to load the config/app_config.yaml file" in str(exc_info.value)
 
 
+def test_get_app_config_returns_empty_dict_for_empty_yaml(monkeypatch, tmp_path):
+    """Test get_app_config handles empty YAML files safely."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_file = config_dir / "app_config.yaml"
+    config_file.write_text("")
+
+    def mock_find_project_root(*args, **kwargs):
+        return tmp_path
+
+    monkeypatch.setattr(utils, "find_project_root", mock_find_project_root)
+    monkeypatch.setattr(os, "getcwd", lambda: str(tmp_path))
+
+    assert utils.get_app_config() == {}
+
+
+def test_get_app_config_returns_empty_dict_for_non_mapping_yaml(monkeypatch, tmp_path):
+    """Test get_app_config falls back safely when YAML is not a mapping."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_file = config_dir / "app_config.yaml"
+    config_file.write_text("- one\n- two\n")
+
+    def mock_find_project_root(*args, **kwargs):
+        return tmp_path
+
+    monkeypatch.setattr(utils, "find_project_root", mock_find_project_root)
+    monkeypatch.setattr(os, "getcwd", lambda: str(tmp_path))
+
+    assert utils.get_app_config() == {}
+
+
 # --- Tests for application name functions ---
 
 def test_get_application_name_success(monkeypatch):
