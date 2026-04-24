@@ -170,98 +170,89 @@ These should be added as dedicated event-facing models in `tksessentials.data_mo
 
 For Codex and contributor workflow instructions, read `SKILL.md`, `AGENTS.md`, and `docs/codex.md` before making behavior changes (especially in `tksessentials/data_models`).
 
-### Setup as Contributor
+### Quick start for new developers
 
-Create the virtual environment:
+Use this checklist the first time you work on this repo:
+
+1. Create and enter a virtual environment.
+2. Install dependencies.
+3. Run unit tests.
+4. Run build checks before creating a release.
 
 ```powershell
 py -m venv .venv
-```
-
-Activate it in PowerShell:
-
-```powershell
 .\.venv\Scripts\Activate.ps1
-```
-
-Install runtime dependencies:
-
-```powershell
-python -m pip install -r .\requirements.txt
-```
-
-Install dev dependencies:
-
-```powershell
+python -m pip install --upgrade pip
 python -m pip install -r .\requirements-dev.txt
 ```
 
-`requirements-dev.txt` already includes `requirements.txt`, so the dev file alone is enough for local development and testing.
+`requirements-dev.txt` already includes runtime requirements, so this is enough for normal dev work.
 
-To clean up the environment:
+### Compile, test, and release (for junior contributors)
+
+Use this flow for day-to-day development:
+
+## 1) Development setup
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r .\requirements-dev.txt
+```
+
+## 2) Make and run local checks
+
+```powershell
+python -m pytest                 # default run (unit tests + coverage)
+python -m pytest --no-cov        # faster local pass without coverage
+python -m pytest tests/int        # Kafka integration tests (Docker required)
+python -m pip_audit -r requirements.txt -r requirements-dev.txt
+```
+
+If integration tests fail, make sure Docker is running and the local project root is resolvable:
+
+```powershell
+python -m pytest --cov=tksessentials --cov-fail-under=80
+```
+
+## 3) Local build (compile)
+
+```powershell
+python -m pip install build twine
+python -m build
+python -m twine check .\dist\*
+```
+
+Artifacts (`.whl` and `.tar.gz`) are written to `dist/`.
+
+## 4) Release process
+
+There are two release options:
+
+### A) Automatic release via GitHub Actions (recommended)
+
+1. Ensure your changes are merged to `main`.
+2. CI will run tests, security scan, package build, and `bumpver` patch bump automatically in the `pypi-publish` stage.
+3. If successful, CI publishes to PyPI.
+
+### B) Manual release (local, when needed)
+
+Use this only when you need a controlled local release artifact:
+
+```powershell
+bumpver update --patch
+python -m build
+python -m twine check .\dist\*
+python -m twine upload .\dist\*
+```
+
+You must have PyPI credentials configured on your machine for the `twine upload` step.
+
+## 5) Common maintenance actions
+
+To clean the environment:
 
 ```powershell
 pip3 freeze > to-uninstall.txt
 pip3 uninstall -y -r to-uninstall.txt
 ```
-
-### Testing
-
-Before running tests, make sure `utils.py` can find the project root. Either set the `PROJECT_ROOT` environment variable to the repository root, or create a `config` or `logs` directory there.
-
-Run the unit suite:
-
-```powershell
-python -m pytest
-```
-
-Coverage now runs automatically with pytest. The terminal report uses `term-missing`, and the HTML report is written to `htmlcov/`.
-
-If you want to run pytest without coverage for a quick local pass:
-
-```powershell
-python -m pytest --no-cov
-```
-
-Integration tests live in `tests/int`. They automatically start the Docker Compose stack in `tests/docker-compose.yaml`, wait for a 3-broker Kafka cluster plus ksqlDB to become ready, and tear the stack down when the test session ends.
-
-Run the integration suite:
-
-```powershell
-python -m pytest tests/int
-```
-
-If you want unit-test coverage locally with an explicit threshold:
-
-```powershell
-python -m pytest --cov=tksessentials --cov-report=term-missing --cov-report=html --cov-fail-under=80
-```
-
-### Build Library
-
-This repository is built from `pyproject.toml`. There is no `setup.py`, so `python setup.py bdist_wheel` is not the correct build command anymore.
-
-Install the build frontend:
-
-```powershell
-python -m pip install build
-```
-
-Build source and wheel distributions:
-
-```powershell
-python -m build
-```
-
-Artifacts are written to `dist/`.
-
-Validate the generated packages in PowerShell:
-
-```powershell
-$dist = Get-ChildItem .\dist | ForEach-Object { $_.FullName }
-python -m twine check $dist
-```
-
-## Releasing a New Version / CI/CD Process
-
-GitHub Actions runs the release flow. The workflow installs `.[dev]`, builds with `python -m build`, validates the distributions, and publishes them to PyPI.
