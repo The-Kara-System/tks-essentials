@@ -132,7 +132,7 @@ async def _get_kafka_broker_count() -> int:
     raise TypeError("Unexpected kafka cluster metadata shape when counting brokers.")
 
 
-def _services_ready() -> tuple[bool, str]:
+def _services_readiness() -> tuple[bool, bool, int, str]:
     details = []
 
     try:
@@ -170,7 +170,11 @@ def _services_ready() -> tuple[bool, str]:
             f"Expected at least {REQUIRED_KAFKA_BROKERS} brokers before proceeding."
         )
 
-    return ready, ", ".join(details)
+    return ready, bool(kafka_ready), broker_count, ", ".join(details)
+
+
+def _services_ready() -> bool:
+    return _services_readiness()[0]
 
 
 def _wait_for_services(timeout_s: int = 300, poll_s: float = 2.0) -> None:
@@ -182,7 +186,7 @@ def _wait_for_services(timeout_s: int = 300, poll_s: float = 2.0) -> None:
     last_detail = "not started"
     while time.monotonic() < deadline:
         attempts += 1
-        ready, detail = _services_ready()
+        ready, _, _, detail = _services_readiness()
         if ready:
             print(f"Kafka and ksqlDB are reachable and stable after {attempts} checks.")
             return
@@ -197,7 +201,7 @@ def _wait_for_services(timeout_s: int = 300, poll_s: float = 2.0) -> None:
 
 
 def _prepare_integration_stack(compose_cmd: list[str]) -> tuple[bool, Path | None]:
-    ready, detail = _services_ready()
+    ready, _, _, detail = _services_readiness()
     if ready:
         print("Precheck passed: using existing Kafka stack.")
         return False, None
