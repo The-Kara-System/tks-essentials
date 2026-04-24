@@ -3,9 +3,11 @@ import asyncio
 import shutil
 import subprocess
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
+from aiokafka.admin import AIOKafkaAdminClient
 
 from tksessentials import database
 
@@ -20,6 +22,7 @@ COMPOSE_PROJECT_NAME = "tks-essentials-test-int-kafka-cluster"
 BOOTSTRAP_BROKERS = "localhost:9092,localhost:9093,localhost:9094"
 KSQLDB_URL = "http://localhost:8088"
 LEGACY_TEST_CONTAINERS = ("kafka1", "kafka2", "kafka3", "ksqldb-server")
+REQUIRED_KAFKA_BROKERS = 3
 
 
 def _compose_command() -> list[str]:
@@ -109,33 +112,96 @@ def _run_async(coro):
         event_loop.close()
 
 
-def _services_ready() -> bool:
+async def _get_kafka_broker_count() -> int:
+    admin = AIOKafkaAdminClient(bootstrap_servers=BOOTSTRAP_BROKERS.split(","))
+    await admin.start()
+    try:
+        metadata = await admin.describe_cluster()
+    finally:
+        await admin.close()
+
+    brokers = getattr(metadata, "brokers", None)
+    if isinstance(brokers, Iterable) and not isinstance(metadata, str):
+        return len(list(brokers))
+
+    if isinstance(metadata, dict):
+        metadata_brokers = metadata.get("brokers")
+        if isinstance(metadata_brokers, Iterable):
+            return len(list(metadata_brokers))
+
+    raise TypeError("Unexpected kafka cluster metadata shape when counting brokers.")
+
+
+def _services_ready() -> tuple[bool, str]:
+    details = []
+
     try:
         kafka_ready = _run_async(database.is_kafka_available())
     except Exception:
+        details.append("Kafka not available from client probe.")
         kafka_ready = False
+
+    if not kafka_ready:
+        details.append("Waiting for Kafka bootstrap brokers.")
+
     try:
-        ksqldb_ready = database.is_ksqldb_available()
+        ksqldb_ready = bool(database.is_ksqldb_available())
     except Exception:
+        details.append("ksqlDB probe failed.")
         ksqldb_ready = False
-    return bool(kafka_ready and ksqldb_ready)
+
+    try:
+        broker_count = _run_async(_get_kafka_broker_count())
+    except Exception:
+        details.append("Kafka cluster metadata not yet ready.")
+        broker_count = 0
 
 
-def _wait_for_services(timeout_s: int = 180, poll_s: float = 2.0) -> None:
+    details.append(f"Kafka broker count currently {broker_count}.")
+
+    ready = bool(
+        kafka_ready
+        and ksqldb_ready
+        and broker_count >= REQUIRED_KAFKA_BROKERS
+    )
+
+    if not ready and ksqldb_ready and kafka_ready:
+        details.append(
+            f"Expected at least {REQUIRED_KAFKA_BROKERS} brokers before proceeding."
+        )
+
+    return ready, ", ".join(details)
+
+
+def _wait_for_services(timeout_s: int = 300, poll_s: float = 2.0) -> None:
+    if timeout_s <= 0:
+        raise RuntimeError("Integration wait timeout must be greater than zero.")
+
     deadline = time.monotonic() + timeout_s
+    attempts = 0
+    last_detail = "not started"
     while time.monotonic() < deadline:
-        if _services_ready():
-            print("Kafka and ksqlDB are already reachable; skipping compose bootstrap.")
+        attempts += 1
+        ready, detail = _services_ready()
+        if ready:
+            print(f"Kafka and ksqlDB are reachable and stable after {attempts} checks.")
             return
+        last_detail = detail
+        print(f"Waiting for services (attempt {attempts}): {detail}")
         time.sleep(poll_s)
 
-    raise RuntimeError("Kafka and/or ksqlDB did not become ready in time.")
+    raise RuntimeError(
+        f"Kafka and/or ksqlDB did not become ready in time. "
+        f"Last check: {last_detail}"
+    )
 
 
 def _prepare_integration_stack(compose_cmd: list[str]) -> tuple[bool, Path | None]:
-    if _services_ready():
+    ready, detail = _services_ready()
+    if ready:
         print("Precheck passed: using existing Kafka stack.")
         return False, None
+    print(f"Precheck details before starting compose: {detail}")
 
     compose_file = _resolve_compose_file()
     print(f"Precheck failed: starting integration services from {compose_file}.")

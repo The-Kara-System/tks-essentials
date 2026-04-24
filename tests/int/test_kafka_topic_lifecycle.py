@@ -40,6 +40,19 @@ async def _wait_for_topic(topic_name: str, should_exist: bool) -> dict | None:
     )
 
 
+async def _wait_for_cleanup_policy(topic_name: str, expected: str | None = None, timeout_s: int = 30) -> str:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        configs = await _get_topic_configs(topic_name)
+        policy = configs.get("cleanup.policy", "")
+        if policy:
+            if expected is None or expected in policy:
+                return policy
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    expected_msg = f" containing '{expected}'" if expected else ""
+    raise AssertionError(f"Timed out waiting for cleanup.policy{expected_msg} for topic {topic_name}.")
+
+
 async def _get_topic_configs(topic_name: str) -> dict:
     brokers = database.get_kafka_cluster_brokers()
     broker_str = brokers if isinstance(brokers, str) else ",".join(brokers)
@@ -161,8 +174,7 @@ async def test_compacted_topic_lifecycle():
 
     try:
         await _wait_for_topic(topic_name, should_exist=True)
-        configs = await _get_topic_configs(topic_name)
-        cleanup_policy = configs.get("cleanup.policy", "")
+        cleanup_policy = await _wait_for_cleanup_policy(topic_name, expected="compact")
         assert "compact" in cleanup_policy
     finally:
         await _delete_topic(topic_name)
