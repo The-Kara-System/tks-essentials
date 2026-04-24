@@ -201,9 +201,13 @@ def _wait_for_services(timeout_s: int = 300, poll_s: float = 2.0) -> None:
 
 
 def _prepare_integration_stack(compose_cmd: list[str]) -> tuple[bool, Path | None]:
+    if _services_ready():
+        print("Precheck passed: using existing Kafka stack.")
+        return False, None
+
     ready, _, _, detail = _services_readiness()
     if ready:
-        print("Precheck passed: using existing Kafka stack.")
+        print("Precheck passed: services became ready during detailed check.")
         return False, None
     print(f"Precheck details before starting compose: {detail}")
 
