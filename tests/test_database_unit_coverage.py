@@ -228,6 +228,28 @@ def test_get_ksqldb_url_non_dev_branch_uses_first_node_from_comma_separated_conf
     assert url == "http://ksql-a.prod:8088/info"
 
 
+def test_get_kafka_cluster_brokers_non_dev_handles_non_string_environment(monkeypatch):
+    monkeypatch.setattr(database.utils, "get_environment", lambda: None)
+    monkeypatch.delenv("KAFKA_BROKER_STRING", raising=False)
+    assert database.get_kafka_cluster_brokers() == ["localhost:9092"]
+
+
+def test_get_kafka_cluster_brokers_filters_missing_ports():
+    assert database._normalize_broker_list(["bad-node", "localhost:9092"]) == ["localhost:9092"]
+
+
+def test_get_ksqldb_url_non_dev_handles_non_string_environment(monkeypatch):
+    monkeypatch.setattr(database.utils, "get_environment", lambda: None)
+    monkeypatch.setenv("KSQLDB_STRING", "http://ksql.prod:8088/")
+    assert database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO) == "http://ksql.prod:8088/info"
+
+
+def test_get_ksqldb_url_uses_first_default_when_nodes_invalid(monkeypatch):
+    monkeypatch.setattr(database.utils, "get_environment", lambda: "PROD")
+    monkeypatch.setenv("KSQLDB_STRING", "  ,   ")
+    assert database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO) == "http://localhost:8088/info"
+
+
 def test_table_or_view_exists_ready_error():
     response = _Response(status_code=503, text="KSQL is not yet ready to serve requests.")
     with patch("tksessentials.database.httpx.post", return_value=response):
@@ -414,6 +436,31 @@ async def test_produce_message_success():
         await database.produce_message("topic1", "key1", {"v": 1})
 
     producer.send_and_wait.assert_awaited_once_with(topic="topic1", key="key1", value={"v": 1})
+    producer.start.assert_not_awaited()
+    producer.flush.assert_awaited_once()
+    producer.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_produce_message_starts_kafka_producer_once():
+    class Producer:
+        def __init__(self, **kwargs):
+            self.start = AsyncMock(return_value=None)
+            self.send_and_wait = AsyncMock(return_value=None)
+            self.flush = AsyncMock(return_value=None)
+            self.stop = AsyncMock(return_value=None)
+
+    producer = Producer()
+
+    def _producer_factory(**kwargs):
+        return producer
+
+    with patch("tksessentials.database.get_kafka_cluster_brokers", return_value=["broker-1:9092"]):
+        with patch("tksessentials.database.AIOKafkaProducer", side_effect=_producer_factory):
+            await database.produce_message("topic1", "key1", {"v": 1})
+
+    producer.start.assert_awaited_once()
+    producer.send_and_wait.assert_awaited_once_with(topic="topic1", key="key1", value={"v": 1})
     producer.flush.assert_awaited_once()
     producer.stop.assert_awaited_once()
 
@@ -483,6 +530,30 @@ async def test_check_availability_with_retry_times_out_on_failures():
 
 
 @pytest.mark.asyncio
+async def test_check_availability_with_retry_adds_false_for_unknown_check_failures():
+    def flaky_check():
+        raise RuntimeError("boom")
+
+    with patch("tksessentials.database.asyncio.sleep", AsyncMock(return_value=None)):
+        with pytest.raises(TimeoutError):
+            await database.check_availability_with_retry(
+                [flaky_check],
+                max_wait_time=1,
+                poll_interval=1,
+            )
+
+
+@pytest.mark.asyncio
+async def test_check_availability_with_retry_reraises_non_retryable_check_errors():
+    def bad_check():
+        raise ValueError("bad check implementation")
+
+    with patch("tksessentials.database.asyncio.sleep", AsyncMock(return_value=None)):
+        with pytest.raises(ValueError, match="bad check implementation"):
+            await database.check_availability_with_retry([bad_check], max_wait_time=1, poll_interval=1)
+
+
+@pytest.mark.asyncio
 async def test_execute_with_retries_eventual_success():
     state = {"attempts": 0}
 
@@ -495,6 +566,16 @@ async def test_execute_with_retries_eventual_success():
         await database.execute_with_retries(flaky_task, retries=3, delay=1)
 
     assert state["attempts"] == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_with_retries_stops_immediately_on_non_retryable_errors():
+    async def invalid_task():
+        raise ValueError("invalid request")
+
+    with patch("tksessentials.database.asyncio.sleep", AsyncMock(return_value=None)):
+        with pytest.raises(ValueError):
+            await database.execute_with_retries(invalid_task, retries=3, delay=1)
 
 
 @pytest.mark.asyncio
@@ -806,6 +887,12 @@ def test_table_or_view_exists_returns_false_if_absent(monkeypatch):
         assert database.table_or_view_exists("orders") is False
 
 
+def test_table_or_view_exists_malformed_payload_returns_false(monkeypatch):
+    response = _Response(status_code=200, payload={"tables": [{"name": "orders"}]})
+    with patch("tksessentials.database.httpx.post", return_value=response):
+        assert database.table_or_view_exists("orders") is False
+
+
 def test_stream_exists_is_case_insensitive(monkeypatch):
     response = _Response(status_code=200, payload=[{"streams": [{"name": "Trades"}]}])
     with patch("tksessentials.database.httpx.post", return_value=response):
@@ -814,5 +901,11 @@ def test_stream_exists_is_case_insensitive(monkeypatch):
 
 def test_stream_exists_returns_false_if_absent(monkeypatch):
     response = _Response(status_code=200, payload=[{"streams": [{"name": "bookings"}]}])
+    with patch("tksessentials.database.httpx.post", return_value=response):
+        assert database.stream_exists("trades") is False
+
+
+def test_stream_exists_malformed_payload_returns_false(monkeypatch):
+    response = _Response(status_code=200, payload={"streams": [{"name": "trades"}]})
     with patch("tksessentials.database.httpx.post", return_value=response):
         assert database.stream_exists("trades") is False

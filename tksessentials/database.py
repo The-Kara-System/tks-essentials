@@ -3,6 +3,7 @@ import json
 import os
 import random
 import re
+import inspect
 from enum import Enum
 from typing import List
 import uuid
@@ -19,6 +20,10 @@ logger = global_logger.setup_custom_logger("app")
 
 class KSQLNotReadyError(Exception):
     pass
+
+KSQL_NOT_READY_MESSAGE = "KSQL is not yet ready to serve requests."
+KSQL_TABLE_EXISTS_MESSAGE = "A table with the same name already exists"
+KSQL_STREAM_EXISTS_MESSAGE = "A stream with the same name already exists"
 
 class KafkaKSqlDbEndPoint(str, Enum):
     KSQL = "ksql"
@@ -51,29 +56,155 @@ async def is_kafka_available() -> bool:
     :param brokers: A string of Kafka brokers (e.g., 'localhost:9092')
     :return: True if available, False otherwise
     """
+    producer = None
     try:
-        BROKERS = get_kafka_cluster_brokers()
-        producer = AIOKafkaProducer(bootstrap_servers=BROKERS)
+        brokers = get_kafka_cluster_brokers()
+        producer = AIOKafkaProducer(bootstrap_servers=brokers)
         await producer.start()
-        await producer.stop()
         return True
     except Exception as e:
         logger.error(f"Error checking Kafka availability: {e}")
         return False
+    finally:
+        if producer is not None:
+            try:
+                await producer.stop()
+            except Exception:
+                # Probe path: cleanup is best effort and should never mask availability state.
+                pass
+
+
+def _describe_check_name(check: object) -> str:
+    return getattr(check, "__name__", check.__class__.__name__)
+
+
+def _is_dev_environment() -> bool:
+    environment = utils.get_environment()
+    return isinstance(environment, str) and environment.upper() == "DEV"
+
+
+def _strip_and_filter_broker_entries(values: List[str], default: List[str], require_port: bool = False) -> List[str]:
+    if not isinstance(values, list):
+        return default
+    normalized: List[str] = []
+    malformed: List[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            malformed.append(str(value))
+            continue
+        candidate = value.strip().rstrip("/")
+        if not candidate:
+            malformed.append(value)
+            continue
+        if require_port and ":" not in candidate:
+            malformed.append(candidate)
+            continue
+        normalized.append(candidate)
+
+    if malformed:
+        logger.warning(f"Ignoring malformed endpoint values for brokers: {malformed}")
+
+    return normalized or default
+
+
+def _strip_and_filter_http_endpoints(values: List[str], default: List[str]) -> List[str]:
+    if not isinstance(values, list):
+        return default
+    normalized: List[str] = []
+    malformed: List[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            malformed.append(str(value))
+            continue
+        candidate = value.strip().rstrip("/")
+        if not candidate:
+            malformed.append(value)
+            continue
+        normalized.append(candidate)
+
+    if malformed:
+        logger.warning(f"Ignoring malformed endpoint values for ksqlDB nodes: {malformed}")
+
+    return normalized or default
+
+
+def _is_ksql_not_ready(response) -> bool:
+    try:
+        text = response.text
+    except Exception:
+        text = ""
+    return isinstance(text, str) and KSQL_NOT_READY_MESSAGE in text
+
+
+def _extract_ksql_resource_names(response, resource_key: str) -> set[str]:
+    if getattr(response, "status_code", None) != 200:
+        return set()
+    try:
+        payload = response.json()
+    except Exception:
+        return set()
+    if not isinstance(payload, list) or not payload:
+        return set()
+    if not isinstance(payload[0], dict):
+        return set()
+    entries = payload[0].get(resource_key, [])
+    if not isinstance(entries, list):
+        return set()
+    names: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if isinstance(name, str):
+            names.add(name.lower())
+    return names
+
+
+def _contains_marker(response, marker: str) -> bool:
+    text = getattr(response, "text", "")
+    return isinstance(text, str) and marker in text
+
+
+async def _flush_and_close_producer(producer) -> None:
+    for method_name in ("flush", "stop"):
+        method = getattr(producer, method_name, None)
+        if method is None:
+            continue
+        try:
+            await method()
+        except Exception as exc:
+            logger.debug(f"Failed during producer cleanup ({method_name}): {exc}")
+
+
+def _is_retryable_sql_exception(exc: Exception) -> bool:
+    # Preserve fail-fast behavior for clearly invalid request inputs.
+    if isinstance(exc, (ValueError, TypeError, AttributeError)):
+        return False
+    return True
+
+
+def _is_retryable_availability_exception(_check_name: str, exc: Exception) -> bool:
+    if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+        return False
+    if isinstance(exc, (RuntimeError, ConnectionError, TimeoutError, OSError, KSQLNotReadyError)):
+        return True
+    if isinstance(exc, (ValueError, TypeError, AttributeError)):
+        return False
+    return True
 
 def _normalize_broker_list(value: str | List[str] | None) -> List[str]:
     if value is None:
         return ["localhost:9092"]
     if isinstance(value, (list, tuple)):
         cleaned = [str(v).strip() for v in value if str(v).strip()]
-        return cleaned or ["localhost:9092"]
+        return _strip_and_filter_broker_entries(cleaned, ["localhost:9092"], require_port=True)
     if not isinstance(value, str):
         return ["localhost:9092"]
     raw = value.strip()
     if not raw or raw == "NODES_NOT_DEFINED":
         return ["localhost:9092"]
     parts = [p.strip() for p in raw.split(",") if p.strip()]
-    return parts or ["localhost:9092"]
+    return _strip_and_filter_broker_entries(parts, ["localhost:9092"], require_port=True)
 
 
 def _normalize_ksqldb_nodes(value: str | List[str] | None) -> List[str]:
@@ -88,20 +219,20 @@ def _normalize_ksqldb_nodes(value: str | List[str] | None) -> List[str]:
         return ["http://localhost:8088"]
     if isinstance(value, (list, tuple)):
         cleaned = [str(v).strip().rstrip("/") for v in value if str(v).strip()]
-        return cleaned or ["http://localhost:8088"]
+        return _strip_and_filter_http_endpoints(cleaned, ["http://localhost:8088"])
     if not isinstance(value, str):
         return ["http://localhost:8088"]
     raw = value.strip()
     if not raw or raw == "KSQLDB_NOT_DEFINED":
         return ["http://localhost:8088"]
     parts = [p.strip().rstrip("/") for p in raw.split(",") if p.strip()]
-    return parts or ["http://localhost:8088"]
+    return _strip_and_filter_http_endpoints(parts, ["http://localhost:8088"])
 
 
 def get_kafka_cluster_brokers() -> List[str]:
     """Fetch the kafka broker array. This should return an array with nodes and ports.
     e.g. ['localhost:9092', 'localhost:9093']"""
-    if utils.get_environment().upper() in ["DEV", None]:
+    if _is_dev_environment():
         kafka_broker_value = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
         return _normalize_broker_list(kafka_broker_value)
     # the value of the KAFKA_BROKER_STRING is set by the global config map.
@@ -228,7 +359,7 @@ def is_ksqldb_available() -> bool:
         return False
 
 def get_ksqldb_url(kafka_ksqldb_endpoint_literal: KafkaKSqlDbEndPoint = KafkaKSqlDbEndPoint.KSQL) -> str:
-    if utils.get_environment().upper() in ["DEV", None]:
+    if _is_dev_environment():
         ksqldb_nodes = _normalize_ksqldb_nodes(os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED"))
         base_url = random.choice(ksqldb_nodes)
         return f"{base_url}/{kafka_ksqldb_endpoint_literal.value}"
@@ -244,12 +375,11 @@ def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECT
     # logger.debug(f"Table Check Result: {response.status_code}: {response.text}")
     # Check if the request was successful
     if response.status_code == 200:
-        tables = response.json()[0]["tables"]
-        for table in tables:
-            if str.lower(table["name"]) == str.lower(name):
-                logger.debug(f"Table {name} exists.")
-                return True
-    elif "KSQL is not yet ready to serve requests." in response.text:
+        tables = _extract_ksql_resource_names(response, "tables")
+        if str(name).lower() in tables:
+            logger.debug(f"Table {name} exists.")
+            return True
+    elif _is_ksql_not_ready(response):
         logger.warning(f"KSQL is not ready to create the table {name}. Retrying...")
         raise KSQLNotReadyError("KSQL is not yet ready to serve requests.")
     else:
@@ -301,10 +431,10 @@ async def create_table(sql_statement: str, table_name: str):
     if response.status_code == 200:
         logger.info(f"Successfully created table {table_name}.")
     else:
-        if "A table with the same name already exists" in response.text:
+        if _contains_marker(response, KSQL_TABLE_EXISTS_MESSAGE):
             logger.info(f"Table {table_name} already exists. Skipping creation.")
             return
-        elif "KSQL is not yet ready to serve requests." in response.text:
+        elif _is_ksql_not_ready(response):
             logger.warning(f"KSQL is not ready to create the table {table_name}. Retrying...")
             raise KSQLNotReadyError("KSQL is not yet ready to serve requests.")
         else:
@@ -337,12 +467,11 @@ def stream_exists(name: str, connection_time_out: float = 60.0) -> bool:
     # logger.info(f"{response.status_code}: {response.text}")
     # Check if the request was successful
     if response.status_code == 200:
-        streams = response.json()[0]["streams"]
-        for stream in streams:
-            if str.lower(stream["name"]) == str.lower(name):
-                logger.debug(f"Stream {name} exists.")
-                return True
-    elif "KSQL is not yet ready to serve requests." in response.text:
+        streams = _extract_ksql_resource_names(response, "streams")
+        if str(name).lower() in streams:
+            logger.debug(f"Stream {name} exists.")
+            return True
+    elif _is_ksql_not_ready(response):
         logger.warning(f"KSQL is not ready to create the stream {name}. Retrying...")
         raise KSQLNotReadyError("KSQL is not yet ready to serve requests.")
     else:
@@ -366,10 +495,10 @@ async def create_stream(sql_statement: str, stream_name: str):
     if response.status_code == 200:
         logger.info(f"Successfully created stream {stream_name}.")
     else:
-        if "A stream with the same name already exists" in response.text:
+        if _contains_marker(response, KSQL_STREAM_EXISTS_MESSAGE):
             logger.info(f"Stream {stream_name} already exists. Skipping creation.")
             return
-        elif "KSQL is not yet ready to serve requests." in response.text:
+        elif _is_ksql_not_ready(response):
             logger.warning(f"KSQL is not ready to create the stream {stream_name}. Retrying...")
             raise KSQLNotReadyError("KSQL is not yet ready to serve requests.")
         else:
@@ -409,23 +538,21 @@ async def execute_sql(sql: str, connection_time_out: float = DEFAULT_CONNECTION_
 async def produce_message(topic_name: str, key: str, value: any) -> None:
     """Will send the provided message to the specified Kafka topic and ends the producer when accomplished.."""
     kp = await get_default_kafka_producer()
-    await kp.start()
     try:
         await kp.send_and_wait(topic=topic_name, key=key, value=value)
     except KafkaError as ke:
-        error_message = f"""An error occurred when trying to send a message of type {type(object)} to the database.
+        error_message = f"""An error occurred when trying to send a message of type {type(value)} to the database.
                         Error message: {ke}"""
         logger.error(error_message)
         raise Exception(error_message)
     except Exception as ex:
-        error_message = f"""A general error occurred when trying to send a message of type {type(object)}
+        error_message = f"""A general error occurred when trying to send a message of type {type(value)}
                         to the database. Error message: {ex}"""
         logger.error(error_message)
         raise Exception(error_message)
     finally:
         # Wait for all pending messages to be delivered or expire.
-        await kp.flush()
-        await kp.stop()
+        await _flush_and_close_producer(kp)
 
 async def check_availability_with_retry(check_functions, max_wait_time=None, poll_interval=5):
     """Checks the availability of services with retry logic.
@@ -443,9 +570,10 @@ async def check_availability_with_retry(check_functions, max_wait_time=None, pol
 
     while max_wait_time is None or elapsed_time < max_wait_time:
         checks = []
-        for check in check_functions:
+        for check in check_functions or []:
+            check_name = _describe_check_name(check)
             try:
-                if asyncio.iscoroutinefunction(check):
+                if inspect.iscoroutinefunction(check):
                     # If the function is async, await it
                     result = await check()
                 else:
@@ -453,27 +581,32 @@ async def check_availability_with_retry(check_functions, max_wait_time=None, pol
                     result = check()
 
                 # Log the result of each check
-                if check.__name__ == 'is_kafka_available':
+                if check_name == 'is_kafka_available':
                     if result:
                         logger.info("Kafka is available.")
                     else:
                         logger.info("Kafka is not available.")
-                elif check.__name__ == 'is_ksqldb_available':
+                elif check_name == 'is_ksqldb_available':
                     if result:
                         logger.info("ksqlDB is available.")
                     else:
                         logger.info("ksqlDB is not available.")
+                else:
+                    logger.debug(f"Check '{check_name}' result: {result}")
 
-                checks.append(result)
+                checks.append(bool(result))
             except Exception as e:
-                if check.__name__ == 'is_kafka_available':
+                if not _is_retryable_availability_exception(check_name, e):
+                    raise
+                if check_name == 'is_kafka_available':
                     logger.error(f"Error checking Kafka availability: {e}")
                     logger.info("Kafka is not available.")
-                    checks.append(False)
-                elif check.__name__ == 'is_ksqldb_available':
+                elif check_name == 'is_ksqldb_available':
                     logger.error(f"Error checking ksqlDB availability: {e}")
                     logger.info("ksqlDB is not available.")
-                    checks.append(False)
+                else:
+                    logger.error(f"Error checking {check_name}: {e}")
+                checks.append(False)
 
         if all(checks):
             logger.info("All services are available. Proceeding...")
@@ -493,11 +626,13 @@ async def execute_with_retries(sql_task, retries=None, delay=20):
             await sql_task()  # Execute the task directly
             return
         except Exception as e:
-            logger.info(f"Failed to execute SQL statement (attempt {attempt + 1}): {e}")
-            if retries is None or attempt < retries - 1:
+            attempt += 1
+            if not _is_retryable_sql_exception(e):
+                raise
+            logger.info(f"Failed to execute SQL statement (attempt {attempt}): {e}")
+            if retries is None or attempt < retries:
                 logger.info(f"Retrying in {delay} seconds...")
                 await asyncio.sleep(delay)
-                attempt += 1
             else:
                 break  # Exceeded max retries
 
