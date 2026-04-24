@@ -60,6 +60,40 @@ pytest
 
 `pytest` includes coverage reporting by default in this project.
 
+### Run Integration Tests
+
+`pytest tests/int` requires two environment assumptions that must be in place before running:
+
+1. A valid `config/app_config.yaml` must be discoverable from the project root used by the test session.
+2. A Docker daemon must be available for Kafka and ksqlDB bootstrap.
+
+If you see an error like:
+
+```text
+FileNotFoundError: ...\Temp\...\\config\\app_config.yaml
+```
+
+set `PROJECT_ROOT` to the repository root (or create a temporary one) and add the required config file:
+
+```powershell
+$env:PROJECT_ROOT = (Resolve-Path .).Path
+New-Item -ItemType Directory -Force -Path "$env:PROJECT_ROOT\config","$env:PROJECT_ROOT\logs" | Out-Null
+@'
+application: tks_essentials_integration
+domain: tks/test
+developer: CI
+'@ | Set-Content -Encoding utf8 "$env:PROJECT_ROOT\config\app_config.yaml"
+python -m pytest tests/int
+```
+
+For environments that already run Kafka externally, set `TKS_KAFKA_COMPOSE_FILE` to your compose file and keep Docker running (or leave the service running) before the test run.
+
+For a fast smoke check of Docker preconditions without the full suite, run:
+
+```powershell
+python -m pytest tests/test_integration_stack_precheck.py
+```
+
 ### Run Specific Test Files
 
 ```bash

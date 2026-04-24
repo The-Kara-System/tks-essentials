@@ -40,6 +40,41 @@ def mock_app_config(monkeypatch, tmp_path):
     return config
 
 
+def test_normalize_search_path_variants(tmp_path):
+    assert utils._normalize_search_path(None) is None
+
+    existing_file = tmp_path / "config.yaml"
+    existing_file.write_text("a: b")
+    assert utils._normalize_search_path(existing_file) == tmp_path
+
+    missing_file = tmp_path / "nope.txt"
+    assert utils._normalize_search_path(missing_file) == tmp_path
+
+    missing_dir = tmp_path / "nope-dir"
+    assert utils._normalize_search_path(missing_dir) == missing_dir
+
+
+def test_get_project_root_search_paths_is_deduplicated(monkeypatch, tmp_path):
+    (tmp_path / "config").mkdir()
+    project_file = tmp_path / "main.py"
+    project_file.write_text("")
+
+    monkeypatch.setattr(utils.os, "getcwd", lambda: str(tmp_path))
+    monkeypatch.setattr(utils.__main__, "__file__", str(project_file))
+    original_sys_path = list(utils.sys.path)
+    monkeypatch.setattr(utils.sys, "path", [str(tmp_path), str(tmp_path / "bin")])
+
+    try:
+        paths = utils._get_project_root_search_paths()
+    finally:
+        monkeypatch.setattr(utils.sys, "path", original_sys_path)
+
+    module_path = pathlib.Path(utils.__file__).resolve().parent
+    assert pathlib.Path(tmp_path) in paths
+    assert module_path in paths
+    assert len(paths) == len(set(paths))
+
+
 # --- Tests for path-related functions ---
 
 def test_get_project_root(mock_project_root):
@@ -469,3 +504,15 @@ def test_initialize_project_root_uses_main_script_path(monkeypatch, tmp_path):
             monkeypatch.delattr(sys.modules["__main__"], "__file__", raising=False)
         else:
             monkeypatch.setattr(sys.modules["__main__"], "__file__", original_main_file, raising=False)
+
+
+def test_initialize_project_root_prefers_env_var(monkeypatch, tmp_path):
+    original_root = utils.PROJECT_ROOT
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+
+    try:
+        utils.initialize_project_root()
+        assert utils.PROJECT_ROOT == tmp_path
+        assert pathlib.Path(os.environ["PROJECT_ROOT"]) == tmp_path
+    finally:
+        utils.PROJECT_ROOT = original_root

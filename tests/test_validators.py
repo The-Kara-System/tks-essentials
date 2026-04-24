@@ -141,6 +141,11 @@ def test_ip_validation_with_list():
         validators.validate_ip_address([192, 168, 1, 1])
 
 
+def test_validate_email_and_ip_return_none_on_success():
+    assert validators.validate_email("john.doe@gmail.com") is None
+    assert validators.validate_ip_address("127.0.0.1") is None
+
+
 # --- Edge Case Tests ---
 
 @pytest.mark.parametrize("input_value", [

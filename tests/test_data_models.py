@@ -43,6 +43,15 @@ from tksessentials.data_models import (
 )
 
 
+def test_data_models_init_exports_common_symbols():
+    import tksessentials.data_models as data_models
+
+    assert "TradingSignal" in data_models.__all__
+    assert "TradingSignalIntent" in data_models.__all__
+    assert hasattr(data_models, "TradingSignal")
+    assert hasattr(data_models, "REQUEST")
+
+
 def _trading_signal_intent(created_at: int = 100) -> TradingSignalIntent:
     return TradingSignalIntent(
         intent_id="intent-1",

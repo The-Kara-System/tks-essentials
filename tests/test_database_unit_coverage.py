@@ -765,3 +765,54 @@ async def test_read_compacted_state_snapshot_handles_kafka_error(monkeypatch):
 
     assert snapshot == {}
     fake_logger.error.assert_called_once()
+
+
+def test_deserialize_kafka_key_and_json_value_helpers():
+    assert database.deserialize_kafka_key(b"abc") == "abc"
+    assert database.deserialize_kafka_key(None) is None
+    assert database.deserialize_kafka_json_value(b"{\"market\":\"BTC\"}") == {"market": "BTC"}
+    assert database.deserialize_kafka_json_value(None) is None
+
+    with pytest.raises(json.JSONDecodeError):
+        database.deserialize_kafka_json_value(b"{")
+
+
+def test_compose_consumer_id_and_producer_id(monkeypatch):
+    monkeypatch.setattr(database.utils, "get_pod_name", lambda: "pod-123")
+
+    assert database.compose_consumer_id() == "pod-123"
+    assert database.compose_producer_id() == "pod-123"
+
+
+def test_get_kafka_cluster_brokers_resolves_defaults(monkeypatch):
+    monkeypatch.setattr(database.utils, "get_environment", lambda: "DEV")
+    monkeypatch.setenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
+    assert database.get_kafka_cluster_brokers() == ["localhost:9092"]
+
+    monkeypatch.setattr(database.utils, "get_environment", lambda: "PROD")
+    monkeypatch.delenv("KAFKA_BROKER_STRING", raising=False)
+    assert database.get_kafka_cluster_brokers() == ["localhost:9092"]
+
+
+def test_table_or_view_exists_is_case_insensitive(monkeypatch):
+    response = _Response(status_code=200, payload=[{"tables": [{"name": "Orders"}, {"name": "trades"}]}])
+    with patch("tksessentials.database.httpx.post", return_value=response):
+        assert database.table_or_view_exists("orders") is True
+
+
+def test_table_or_view_exists_returns_false_if_absent(monkeypatch):
+    response = _Response(status_code=200, payload=[{"tables": [{"name": "positions"}]}])
+    with patch("tksessentials.database.httpx.post", return_value=response):
+        assert database.table_or_view_exists("orders") is False
+
+
+def test_stream_exists_is_case_insensitive(monkeypatch):
+    response = _Response(status_code=200, payload=[{"streams": [{"name": "Trades"}]}])
+    with patch("tksessentials.database.httpx.post", return_value=response):
+        assert database.stream_exists("trades") is True
+
+
+def test_stream_exists_returns_false_if_absent(monkeypatch):
+    response = _Response(status_code=200, payload=[{"streams": [{"name": "bookings"}]}])
+    with patch("tksessentials.database.httpx.post", return_value=response):
+        assert database.stream_exists("trades") is False
