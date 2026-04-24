@@ -168,6 +168,8 @@ These should be added as dedicated event-facing models in `tksessentials.data_mo
 
 ## Development
 
+For Codex and contributor workflow instructions, read `SKILL.md`, `AGENTS.md`, and `docs/codex.md` before making behavior changes (especially in `tksessentials/data_models`).
+
 ### Setup as Contributor
 
 Create the virtual environment:
