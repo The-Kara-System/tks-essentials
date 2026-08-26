@@ -9,6 +9,7 @@ from tksessentials.data_models import (
     OrderCanceled,
     OrderFill,
     OrderFilled,
+    OrderOrigin,
     OrderRequest,
     OrderSnapshot,
     OrderStatus,
@@ -249,6 +250,103 @@ def test_limit_order_requires_limit_price():
             order_type=OrderType.LIMIT,
             quantity=1.0,
         )
+
+
+def test_legacy_execution_payloads_default_to_unassigned_origin():
+    order = _order_request()
+    fill = OrderFill(
+        fill_id="fill-legacy",
+        order_id="order-legacy",
+        market="BTC/USDT",
+        side=Side.BUY,
+        filled_qty=1.0,
+        filled_price=101.0,
+    )
+    trade = Trade(
+        trade_id="trade-legacy",
+        market="BTC/USDT",
+        direction=Direction.LONG,
+        status=TradeStatus.OPEN,
+    )
+
+    assert order.order_origin == OrderOrigin.UNASSIGNED
+    assert fill.order_origin == OrderOrigin.UNASSIGNED
+    assert trade.order_origin == OrderOrigin.UNASSIGNED
+
+
+@pytest.mark.parametrize(
+    ("model", "payload"),
+    [
+        (
+            OrderRequest,
+            {
+                "order_id": "order-1",
+                "intent_id": "intent-1",
+                "market": "BTC/USDT",
+                "side": Side.BUY,
+                "order_type": OrderType.MARKET,
+                "quantity": 1.0,
+            },
+        ),
+        (
+            OrderFill,
+            {
+                "fill_id": "fill-1",
+                "order_id": "order-1",
+                "market": "BTC/USDT",
+                "side": Side.BUY,
+                "filled_qty": 1.0,
+                "filled_price": 101.0,
+            },
+        ),
+        (
+            Trade,
+            {
+                "trade_id": "trade-1",
+                "market": "BTC/USDT",
+                "direction": Direction.LONG,
+                "status": TradeStatus.OPEN,
+            },
+        ),
+    ],
+)
+def test_strategy_execution_payload_requires_strategy_id(model, payload):
+    with pytest.raises(ValidationError, match="strategy_id is required"):
+        model(**payload, order_origin=OrderOrigin.STRATEGY)
+
+
+def test_execution_traceability_fields_round_trip():
+    trace = {
+        "strategy_id": "tks-strategy-fractals",
+        "signal_id": "signal-1",
+        "signal_provider_signal_id": "provider-signal-1",
+        "signal_provider_trade_id": "provider-trade-1",
+        "order_origin": OrderOrigin.STRATEGY,
+    }
+
+    order = _order_request().model_copy(update=trace)
+    fill = OrderFill(
+        fill_id="fill-1",
+        order_id="order-1",
+        market="BTC/USDT",
+        side=Side.BUY,
+        filled_qty=1.0,
+        filled_price=101.0,
+        **trace,
+    )
+    trade = Trade(
+        trade_id="trade-1",
+        market="BTC/USDT",
+        direction=Direction.LONG,
+        status=TradeStatus.OPEN,
+        **trace,
+    )
+
+    for payload in (order, fill, trade):
+        dumped = payload.model_dump(mode="json")
+        assert dumped["strategy_id"] == "tks-strategy-fractals"
+        assert dumped["signal_provider_signal_id"] == "provider-signal-1"
+        assert dumped["order_origin"] == "strategy"
 
 
 def test_trade_properties_report_open_state():

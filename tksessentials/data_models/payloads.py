@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .value_objects import (
     Direction,
     LiquidityType,
+    OrderOrigin,
     OrderType,
     SignalProvider,
     Side,
@@ -155,6 +156,11 @@ class OrderRequest(PayloadModel):
     order_id: str
     intent_id: str
     trade_id: Optional[str] = None
+    strategy_id: Optional[str] = None
+    signal_id: Optional[str] = None
+    signal_provider_signal_id: Optional[str] = None
+    signal_provider_trade_id: Optional[str] = None
+    order_origin: OrderOrigin = OrderOrigin.UNASSIGNED
     market: str
     side: Side
     order_type: OrderType
@@ -166,7 +172,18 @@ class OrderRequest(PayloadModel):
     created_at: int = Field(default_factory=lambda: int(time.time() * 1000))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("order_id", "intent_id", "trade_id", "market", "time_in_force", "venue")
+    @field_validator(
+        "order_id",
+        "intent_id",
+        "trade_id",
+        "strategy_id",
+        "signal_id",
+        "signal_provider_signal_id",
+        "signal_provider_trade_id",
+        "market",
+        "time_in_force",
+        "venue",
+    )
     def validate_non_empty_strings(cls, value: Optional[str]) -> Optional[str]:
         """Reject blank identifiers and optional routing strings."""
 
@@ -188,6 +205,8 @@ class OrderRequest(PayloadModel):
 
         if self.order_type == OrderType.LIMIT and self.limit_price is None:
             raise ValueError("limit_price is required for limit orders.")
+        if self.order_origin == OrderOrigin.STRATEGY and self.strategy_id is None:
+            raise ValueError("strategy_id is required when order_origin is strategy.")
         return self
 
     @property
@@ -290,6 +309,11 @@ class OrderFill(PayloadModel):
     fill_id: str
     order_id: str
     trade_id: Optional[str] = None
+    strategy_id: Optional[str] = None
+    signal_id: Optional[str] = None
+    signal_provider_signal_id: Optional[str] = None
+    signal_provider_trade_id: Optional[str] = None
+    order_origin: OrderOrigin = OrderOrigin.UNASSIGNED
     market: str
     side: Side
     filled_qty: float = Field(gt=0)
@@ -299,13 +323,30 @@ class OrderFill(PayloadModel):
     filled_at: int = Field(default_factory=lambda: int(time.time() * 1000))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("fill_id", "order_id", "trade_id", "market")
+    @field_validator(
+        "fill_id",
+        "order_id",
+        "trade_id",
+        "strategy_id",
+        "signal_id",
+        "signal_provider_signal_id",
+        "signal_provider_trade_id",
+        "market",
+    )
     def validate_non_empty_strings(cls, value: Optional[str]) -> Optional[str]:
         """Reject blank identifiers and blank market strings."""
 
         if value is not None and not value.strip():
             raise ValueError("This field must not be blank when provided.")
         return value
+
+    @model_validator(mode="after")
+    def validate_strategy_origin(self) -> "OrderFill":
+        """Require strategy identity only for explicitly strategy-owned fills."""
+
+        if self.order_origin == OrderOrigin.STRATEGY and self.strategy_id is None:
+            raise ValueError("strategy_id is required when order_origin is strategy.")
+        return self
 
 
 class Trade(PayloadModel):
@@ -317,8 +358,11 @@ class Trade(PayloadModel):
     """
 
     trade_id: str
+    strategy_id: Optional[str] = None
     signal_id: Optional[str] = None
+    signal_provider_signal_id: Optional[str] = None
     signal_provider_trade_id: Optional[str] = None
+    order_origin: OrderOrigin = OrderOrigin.UNASSIGNED
     market: str
     direction: Direction
     status: TradeStatus
@@ -331,7 +375,14 @@ class Trade(PayloadModel):
     realized_pnl: float = 0.0
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("trade_id", "signal_id", "signal_provider_trade_id", "market")
+    @field_validator(
+        "trade_id",
+        "strategy_id",
+        "signal_id",
+        "signal_provider_signal_id",
+        "signal_provider_trade_id",
+        "market",
+    )
     def validate_non_empty_strings(cls, value: Optional[str]) -> Optional[str]:
         """Reject blank identifiers and blank market strings."""
 
@@ -346,6 +397,14 @@ class Trade(PayloadModel):
         if value is not None and value <= 0:
             raise ValueError("Average prices must be positive when provided.")
         return value
+
+    @model_validator(mode="after")
+    def validate_strategy_origin(self) -> "Trade":
+        """Require strategy identity only for explicitly strategy-owned trades."""
+
+        if self.order_origin == OrderOrigin.STRATEGY and self.strategy_id is None:
+            raise ValueError("strategy_id is required when order_origin is strategy.")
+        return self
 
     @property
     def net_qty(self) -> float:

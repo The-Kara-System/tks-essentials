@@ -38,6 +38,19 @@ class OrderType(str, Enum):
     MARKET = "market"
 
 
+class OrderOrigin(str, Enum):
+    """Business origin of an execution instruction, fill, or trade.
+
+    ``UNASSIGNED`` is the safe compatibility value for legacy payloads whose
+    provenance cannot be reconstructed.  It must not be interpreted as proof
+    that an order was placed manually.
+    """
+
+    STRATEGY = "strategy"
+    MANUAL = "manual"
+    UNASSIGNED = "unassigned"
+
+
 class AggregateType(str, Enum):
     """Aggregate families used by the event envelope.
 

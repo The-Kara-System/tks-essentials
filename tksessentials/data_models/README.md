@@ -116,6 +116,7 @@ tksessentials.data_models
 | `Direction` | Describe exposure bias. | `LONG`, `SHORT` | Used by intents, signals, and trades. | Not execution side. |
 | `Side` | Describe the concrete buy or sell action. | `BUY`, `SELL` | Used by intents, signals, orders, and fills. | Not directional bias. |
 | `OrderType` | Describe venue order style. | `LIMIT`, `MARKET` | Used before or during order creation. | Not an order event. |
+| `OrderOrigin` | Describe attributable execution ownership. | `STRATEGY`, `MANUAL`, `UNASSIGNED` | Used by orders, fills, and trades. | `UNASSIGNED` is not proof of a manual order. |
 | `AggregateType` | Label which aggregate an event belongs to. | `SIGNAL`, `INTENT`, `ORDER`, `TRADE` | Used on `DomainEvent`. | Not business status. |
 | `SignalStatus` | Snapshot status for a trading signal. | `INVALIDATED`, `CREATED`, `REJECTED`, `QUALIFIED_COLD`, `QUALIFIED_HOT` | Used on `TradingSignalSnapshot`. | Not an event. |
 | `IntentStatus` | Snapshot status for a trading-signal intent. | `CREATED`, `GRANTED`, `REJECTED`, `CANCELED`, `EXPIRED` | Used on `TradingSignalIntentSnapshot`. | Not PRM logic itself. |
@@ -138,9 +139,9 @@ tksessentials.data_models
 | `TradingSignal` | PRM-granted transport signal. | All relevant intent fields plus `signal_id`, `prm_granted_at` | Strategy pod after PRM approval. | Kafka publication and downstream signal events. | Not just a local wish and not an order. |
 | `TradingSignalSpot` | Spot-specific transport signal. | Same as `TradingSignal`, enforces `direction=LONG` | Spot strategy pod. | Spot bridge consumption. | Not a futures signal. |
 | `TradingSignalFuture` | Futures-specific transport signal. | Same as `TradingSignal` with long or short allowed | Futures strategy pod. | Futures bridge consumption. | Not spot-only. |
-| `OrderRequest` | One concrete venue instruction. | `order_id`, `intent_id`, `trade_id`, `market`, `side`, `order_type`, `quantity`, `limit_price`, `time_in_force`, `venue`, `reduce_only`, `created_at`, `metadata` | Bridge or execution router. | Place, reject, cancel, or fill. | Not a fill and not the trade aggregate. |
-| `OrderFill` | One matched execution fact. | `fill_id`, `order_id`, `trade_id`, `market`, `side`, `filled_qty`, `filled_price`, `fee`, `liquidity`, `filled_at`, `metadata` | Venue adapter or broker bridge. | Trade update events. | Not the order instruction itself. |
-| `Trade` | Aggregate of real exposure and outcome. | `trade_id`, `signal_id`, `signal_provider_trade_id`, `market`, `direction`, `status`, `opened_at`, `closed_at`, `entry_qty`, `exit_qty`, `avg_entry_price`, `avg_exit_price`, `realized_pnl`, `metadata` | Trade aggregate or portfolio service. | Open, increase, reduce, close, cancel, report PnL. | Not the originating signal and not one order. |
+| `OrderRequest` | One concrete venue instruction. | `order_id`, `intent_id`, `trade_id`, canonical strategy/signal IDs, `order_origin`, `market`, `side`, `order_type`, `quantity`, `limit_price`, `time_in_force`, `venue`, `reduce_only`, `created_at`, `metadata` | Bridge or execution router. | Place, reject, cancel, or fill. | Not a fill and not the trade aggregate. |
+| `OrderFill` | One matched execution fact. | `fill_id`, `order_id`, `trade_id`, canonical strategy/signal IDs, `order_origin`, `market`, `side`, `filled_qty`, `filled_price`, `fee`, `liquidity`, `filled_at`, `metadata` | Venue adapter or broker bridge. | Trade update events. | Not the order instruction itself. |
+| `Trade` | Aggregate of real exposure and outcome. | `trade_id`, canonical strategy/signal IDs, `order_origin`, `market`, `direction`, `status`, `opened_at`, `closed_at`, `entry_qty`, `exit_qty`, `avg_entry_price`, `avg_exit_price`, `realized_pnl`, `metadata` | Trade aggregate or portfolio service. | Open, increase, reduce, close, cancel, report PnL. | Not the originating signal and not one order. |
 
 ### Payload Helper Behavior
 

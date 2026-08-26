@@ -153,6 +153,12 @@ LIFECYCLE PATH
 
 `signal_provider` is explicit domain identity for the signal owner or originator. It is not the same as event `source`, which should continue to mean the service that emitted the event.
 
+`OrderRequest`, `OrderFill`, and `Trade` carry the same optional canonical
+strategy/signal trace fields plus `order_origin`. Legacy payloads remain valid
+and deserialize as `order_origin="unassigned"`; only an explicitly
+strategy-owned payload requires `strategy_id`. `unassigned` means provenance
+could not be reconstructed and must not be relabeled as a manual order.
+
 `created_at` on `TradingSignalIntent` captures when the strategy formed the trading idea. `prm_granted_at` on `TradingSignal` captures when PRM allowed that idea to become a publishable signal. Both timestamps matter and answer different business questions.
 
 ### Trade Monitoring Extension

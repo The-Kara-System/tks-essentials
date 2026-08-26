@@ -31,3 +31,12 @@
 - If adding/changing models, update tests in `tests/test_data_models.py`.
 - If changing rejection/cold/hot signal behavior, validate compatibility with
   `tks-strategy-framework` and `tks-bridge-binance-spot-public`.
+
+## Current Cross-Repo Compatibility Note
+
+- Execution payloads now expose additive `strategy_id`, `signal_id`,
+  `signal_provider_signal_id`, `signal_provider_trade_id`, and `order_origin`
+  fields. Consumers must keep accepting payloads where these fields are absent;
+  absence is represented as `order_origin="unassigned"`.
+- Bridge services may retain a compatibility alias such as `provider_trade_id`
+  while producing `signal_provider_trade_id` as the canonical field.
