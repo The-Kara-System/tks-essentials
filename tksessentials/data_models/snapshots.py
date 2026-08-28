@@ -1,11 +1,17 @@
 """Read-side snapshots for the event-driven trading design."""
 
 import time
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .payloads import OrderRequest, Trade, TradingSignal, TradingSignalIntent
+from .payloads import (
+    OrderRequest,
+    PositionMarkV1,
+    Trade,
+    TradingSignal,
+    TradingSignalIntent,
+)
 from .value_objects import (
     IntentStatus,
     OrderStatus,
@@ -23,6 +29,53 @@ class SnapshotModel(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+
+class PositionsMarkSnapshotV1(SnapshotModel):
+    """Full short-lived position valuations or their freshness heartbeat.
+
+    `as_of` and `last_snapshot_as_of` are Unix epoch milliseconds. A snapshot
+    fully replaces the account's previous mark set. A heartbeat only confirms
+    freshness and references the most recent full snapshot.
+    """
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, strict=True)
+
+    schema_version: Literal[1] = 1
+    kind: Literal["snapshot", "heartbeat"]
+    account_id: str
+    as_of: int = Field(gt=0)
+    positions: list[PositionMarkV1] = Field(default_factory=list)
+    last_snapshot_as_of: Optional[int] = Field(default=None, gt=0)
+
+    @field_validator("account_id")
+    def validate_account_id(cls, value: str) -> str:
+        """Reject an empty account identity."""
+
+        if not value.strip():
+            raise ValueError("account_id must not be blank.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_message_shape(self) -> "PositionsMarkSnapshotV1":
+        """Keep full snapshots and lightweight heartbeats unambiguous."""
+
+        position_ids = [position.position_id for position in self.positions]
+        if len(position_ids) != len(set(position_ids)):
+            raise ValueError("position_id must be unique within a mark snapshot.")
+
+        if self.kind == "snapshot":
+            if self.last_snapshot_as_of is not None:
+                raise ValueError("snapshot must not set last_snapshot_as_of.")
+            return self
+
+        if self.positions:
+            raise ValueError("heartbeat must not contain positions.")
+        if self.last_snapshot_as_of is None:
+            raise ValueError("last_snapshot_as_of is required for a heartbeat.")
+        if self.last_snapshot_as_of > self.as_of:
+            raise ValueError("last_snapshot_as_of must not be later than as_of.")
+        return self
 
 
 class TradingSignalSnapshot(SnapshotModel):

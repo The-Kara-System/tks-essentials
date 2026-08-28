@@ -14,6 +14,8 @@ from tksessentials.data_models import (
     OrderSnapshot,
     OrderStatus,
     OrderType,
+    PositionMarkV1,
+    PositionsMarkSnapshotV1,
     SignalProvider,
     SignalStatus,
     Side,
@@ -49,8 +51,152 @@ def test_data_models_init_exports_common_symbols():
 
     assert "TradingSignal" in data_models.__all__
     assert "TradingSignalIntent" in data_models.__all__
+    assert "PositionMarkV1" in data_models.__all__
+    assert "PositionsMarkSnapshotV1" in data_models.__all__
     assert hasattr(data_models, "TradingSignal")
     assert hasattr(data_models, "REQUEST")
+
+
+def _position_mark(
+    position_id: str = "binance:spot:strategy-a:BTCUSDT:LONG",
+) -> PositionMarkV1:
+    return PositionMarkV1(
+        position_id=position_id,
+        mark_price=42_500.25,
+        position_value_usdt=1_275.01,
+        unrealized_pnl_usdt=-24.99,
+        pnl_percent=-1.92,
+    )
+
+
+def test_position_mark_snapshot_round_trips_as_strict_v1_contract():
+    snapshot = PositionsMarkSnapshotV1(
+        kind="snapshot",
+        account_id="binance:spot:SPOT",
+        as_of=1_777_000_000_000,
+        positions=[_position_mark()],
+    )
+
+    dumped = snapshot.model_dump(mode="json")
+
+    assert dumped == {
+        "schema_version": 1,
+        "kind": "snapshot",
+        "account_id": "binance:spot:SPOT",
+        "as_of": 1_777_000_000_000,
+        "positions": [
+            {
+                "position_id": "binance:spot:strategy-a:BTCUSDT:LONG",
+                "mark_price": 42_500.25,
+                "position_value_usdt": 1_275.01,
+                "unrealized_pnl_usdt": -24.99,
+                "pnl_percent": -1.92,
+            }
+        ],
+        "last_snapshot_as_of": None,
+    }
+    assert PositionsMarkSnapshotV1.model_validate(dumped) == snapshot
+
+
+def test_position_mark_heartbeat_references_the_last_snapshot():
+    heartbeat = PositionsMarkSnapshotV1(
+        kind="heartbeat",
+        account_id="binance:spot:SPOT",
+        as_of=1_777_000_005_000,
+        last_snapshot_as_of=1_777_000_000_000,
+    )
+
+    assert heartbeat.positions == []
+    assert heartbeat.last_snapshot_as_of == 1_777_000_000_000
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"position_id": "   "},
+        {"mark_price": 0.0},
+        {"position_value_usdt": -0.01},
+        {"unrealized_pnl_usdt": float("inf")},
+        {"pnl_percent": float("nan")},
+    ],
+)
+def test_position_mark_rejects_invalid_identity_or_values(payload):
+    values = _position_mark().model_dump()
+    values.update(payload)
+
+    with pytest.raises(ValidationError):
+        PositionMarkV1(**values)
+
+
+def test_positions_mark_snapshot_rejects_duplicate_position_ids():
+    with pytest.raises(ValidationError, match="position_id must be unique"):
+        PositionsMarkSnapshotV1(
+            kind="snapshot",
+            account_id="binance:spot:SPOT",
+            as_of=1_777_000_000_000,
+            positions=[_position_mark(), _position_mark()],
+        )
+
+
+@pytest.mark.parametrize(
+    "payload, expected_error",
+    [
+        (
+            {
+                "kind": "heartbeat",
+                "positions": [_position_mark()],
+                "last_snapshot_as_of": 1_777_000_000_000,
+            },
+            "heartbeat must not contain positions",
+        ),
+        (
+            {"kind": "heartbeat", "positions": []},
+            "last_snapshot_as_of is required",
+        ),
+        (
+            {
+                "kind": "heartbeat",
+                "positions": [],
+                "last_snapshot_as_of": 1_777_000_000_001,
+            },
+            "must not be later than as_of",
+        ),
+        (
+            {
+                "kind": "snapshot",
+                "positions": [],
+                "last_snapshot_as_of": 1_777_000_000_000,
+            },
+            "snapshot must not set last_snapshot_as_of",
+        ),
+    ],
+)
+def test_positions_mark_snapshot_enforces_snapshot_and_heartbeat_shapes(
+    payload,
+    expected_error,
+):
+    values = {
+        "account_id": "binance:spot:SPOT",
+        "as_of": 1_777_000_000_000,
+        **payload,
+    }
+
+    with pytest.raises(ValidationError, match=expected_error):
+        PositionsMarkSnapshotV1(**values)
+
+
+def test_positions_mark_contracts_reject_unknown_fields():
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        PositionMarkV1(**_position_mark().model_dump(), symbol="BTCUSDT")
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        PositionsMarkSnapshotV1(
+            kind="snapshot",
+            account_id="binance:spot:SPOT",
+            as_of=1_777_000_000_000,
+            positions=[],
+            event_time=1_777_000_000_000,
+        )
 
 
 def _trading_signal_intent(created_at: int = 100) -> TradingSignalIntent:

@@ -27,6 +27,31 @@ class PayloadModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PositionMarkV1(PayloadModel):
+    """Current market valuation for one active position.
+
+    Purpose: carry short-lived mark-to-market values without rewriting the
+    durable structural position state.
+    Not: not a position lifecycle event and not historical valuation storage.
+    """
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, strict=True)
+
+    position_id: str
+    mark_price: float = Field(gt=0)
+    position_value_usdt: float = Field(ge=0)
+    unrealized_pnl_usdt: float
+    pnl_percent: float
+
+    @field_validator("position_id")
+    def validate_position_id(cls, value: str) -> str:
+        """Reject an empty durable position key."""
+
+        if not value.strip():
+            raise ValueError("position_id must not be blank.")
+        return value
+
+
 class TradingSignalIntent(PayloadModel):
     """Internal pre-PRM trading-signal draft.
 

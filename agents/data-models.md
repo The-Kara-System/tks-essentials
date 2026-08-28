@@ -40,3 +40,6 @@
   absence is represented as `order_origin="unassigned"`.
 - Bridge services may retain a compatibility alias such as `provider_trade_id`
   while producing `signal_provider_trade_id` as the canonical field.
+- `PositionMarkV1` and `PositionsMarkSnapshotV1` are the additive short-lived
+  valuation contracts. They must not replace or rewrite durable structural
+  position state, and heartbeat messages must not contain position values.

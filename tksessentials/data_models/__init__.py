@@ -34,6 +34,7 @@ from .market_data import EXCHANGE, MACD, OHLCV, REQUEST, REQUEST_TYPE, RSI, TIME
 from .payloads import (
     OrderFill,
     OrderRequest,
+    PositionMarkV1,
     Trade,
     TradingSignal,
     TradingSignalFuture,
@@ -42,7 +43,13 @@ from .payloads import (
     TradingSignalIntentSpot,
     TradingSignalSpot,
 )
-from .snapshots import OrderSnapshot, TradeSnapshot, TradingSignalIntentSnapshot, TradingSignalSnapshot
+from .snapshots import (
+    OrderSnapshot,
+    PositionsMarkSnapshotV1,
+    TradeSnapshot,
+    TradingSignalIntentSnapshot,
+    TradingSignalSnapshot,
+)
 from .value_objects import (
     AggregateType,
     Direction,
@@ -84,6 +91,8 @@ __all__ = [
     "OrderSnapshot",
     "OrderStatus",
     "OrderType",
+    "PositionMarkV1",
+    "PositionsMarkSnapshotV1",
     "ProfitRealized",
     "REQUEST",
     "REQUEST_TYPE",

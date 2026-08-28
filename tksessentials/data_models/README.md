@@ -142,6 +142,7 @@ tksessentials.data_models
 | `OrderRequest` | One concrete venue instruction. | `order_id`, `intent_id`, `trade_id`, canonical strategy/signal IDs, `order_origin`, `market`, `side`, `order_type`, `quantity`, `limit_price`, `time_in_force`, `venue`, `reduce_only`, `created_at`, `metadata` | Bridge or execution router. | Place, reject, cancel, or fill. | Not a fill and not the trade aggregate. |
 | `OrderFill` | One matched execution fact. | `fill_id`, `order_id`, `trade_id`, canonical strategy/signal IDs, `order_origin`, `market`, `side`, `filled_qty`, `filled_price`, `fee`, `liquidity`, `filled_at`, `metadata` | Venue adapter or broker bridge. | Trade update events. | Not the order instruction itself. |
 | `Trade` | Aggregate of real exposure and outcome. | `trade_id`, canonical strategy/signal IDs, `order_origin`, `market`, `direction`, `status`, `opened_at`, `closed_at`, `entry_qty`, `exit_qty`, `avg_entry_price`, `avg_exit_price`, `realized_pnl`, `metadata` | Trade aggregate or portfolio service. | Open, increase, reduce, close, cancel, report PnL. | Not the originating signal and not one order. |
+| `PositionMarkV1` | Short-lived valuation for one active position. | `position_id`, `mark_price`, `position_value_usdt`, `unrealized_pnl_usdt`, `pnl_percent` | Venue bridge. | Full account mark snapshot. | Not durable structural position state or valuation history. |
 
 ### Payload Helper Behavior
 
@@ -198,6 +199,12 @@ tksessentials.data_models
 | `TradingSignalIntentSnapshot` | Latest view of an intent aggregate with traceability. | `trading_signal_intent`, `status`, `granted_at`, `granted_signal_id`, `rejection_reasons`, `reason_detail`, `last_event_id`, `last_event_at` | APIs, PRM audit, debugging. | Not the intent event stream. |
 | `OrderSnapshot` | Latest view of order state and fill progress. | `order`, `status`, `filled_qty`, `avg_fill_price`, `rejection_reason`, `last_event_id`, `last_event_at` | Execution UI, operations, replay tooling. | Not the order event stream. |
 | `TradeSnapshot` | Latest view of trade state and realized outcome. | `trade`, `status`, `open_order_ids`, `last_realized_pnl_delta`, `last_event_id`, `last_event_at` | Portfolio UI, analytics, reporting. | Not the trade event stream. |
+| `PositionsMarkSnapshotV1` | Full replacement of current account marks or a freshness heartbeat. | `schema_version`, `kind`, `account_id`, `as_of`, `positions`, `last_snapshot_as_of` | Operations read model. | Realtime SSE projection. | Not a durable 1-Hz history. |
+
+`PositionsMarkSnapshotV1` uses Unix epoch milliseconds. `kind="snapshot"`
+contains the complete current mark set for one account; `kind="heartbeat"`
+contains no positions and references the last full snapshot with
+`last_snapshot_as_of`.
 
 ### Snapshot Helper Properties
 
