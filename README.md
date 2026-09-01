@@ -26,6 +26,53 @@ Import the package without the dash:
 from tksessentials import global_logger
 ```
 
+## Kafka and ksqlDB connection contract
+
+All Kafka producer, consumer, admin, topic, snapshot, and availability helpers use
+the same validated connection settings. All ksqlDB requests likewise share one
+HTTP authentication and TLS contract.
+
+Applications that construct their own `aiokafka` or `httpx` clients can reuse the
+same settings:
+
+```python
+from aiokafka import AIOKafkaProducer
+import httpx
+
+from tksessentials import database
+
+kafka = AIOKafkaProducer(**database.get_kafka_client_kwargs())
+ksqldb = httpx.Client(**database.get_ksqldb_httpx_kwargs())
+```
+
+DEV remains backward compatible without configuration:
+
+- Kafka: `localhost:9092` over `PLAINTEXT`
+- ksqlDB: `http://localhost:8088` without authentication
+
+UAT and PROD fail closed and require the complete contract below. Passwords are
+read from mounted files and are never accepted through plain password environment
+variables.
+
+| Variable | UAT/PROD requirement |
+| --- | --- |
+| `KAFKA_BROKER_STRING` | Comma-separated `host:port` endpoints; SAHRI uses port 9093. |
+| `KAFKA_SECURITY_PROTOCOL` | Exactly `SASL_SSL`. |
+| `KAFKA_SASL_MECHANISM` | Exactly `SCRAM-SHA-512`. |
+| `KAFKA_SASL_USERNAME` | Per-workload Strimzi principal. |
+| `KAFKA_SASL_PASSWORD_FILE` | Readable mounted file containing the SCRAM password. |
+| `KAFKA_SSL_CA_FILE` | Readable mounted Strimzi cluster CA certificate. |
+| `KSQLDB_STRING` | One or more comma-separated HTTPS base URLs. |
+| `KSQLDB_USERNAME` | Per-workload ksqlDB REST principal. |
+| `KSQLDB_PASSWORD_FILE` | Readable mounted file containing the REST password. |
+| `KSQLDB_CA_FILE` | Readable mounted ksqlDB CA certificate. |
+
+`get_kafka_client_kwargs(bootstrap_servers=...)` supports the existing explicit
+bootstrap override used by compacted-topic snapshot readers, but the override does
+not bypass UAT/PROD authentication or TLS validation. For `confluent-kafka`, map
+the same contract to that client's dotted option names; the returned kwargs are
+specifically shaped for `aiokafka`.
+
 ## Trading Models
 
 `tksessentials.data_models` is the productive model package for event-driven trading flows. It separates payload nouns from event facts and snapshots, and it models the full path from a local strategy intent to a closed trade.

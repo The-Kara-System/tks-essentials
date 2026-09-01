@@ -248,10 +248,10 @@ def test_bytes_to_int_big_endian():
 
 def test_get_ksqldb_url_non_dev_branch(monkeypatch):
     monkeypatch.setattr(database.utils, "get_environment", lambda: "PROD")
-    monkeypatch.setenv("KSQLDB_STRING", "http://ksql.prod:8088/")
+    monkeypatch.setenv("KSQLDB_STRING", "https://ksql.prod:8088/")
 
     url = database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)
-    assert url == "http://ksql.prod:8088/info"
+    assert url == "https://ksql.prod:8088/info"
 
 
 def test_get_ksqldb_url_dev_branch_uses_normalized_nodes(monkeypatch):
@@ -279,11 +279,11 @@ def test_get_ksqldb_url_non_dev_branch_uses_first_node_from_comma_separated_conf
     monkeypatch.setattr(database.utils, "get_environment", lambda: "PROD")
     monkeypatch.setenv(
         "KSQLDB_STRING",
-        "http://ksql-a.prod:8088/,http://ksql-b.prod:8088/",
+        "https://ksql-a.prod:8088/,https://ksql-b.prod:8088/",
     )
 
     url = database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)
-    assert url == "http://ksql-a.prod:8088/info"
+    assert url == "https://ksql-a.prod:8088/info"
 
 
 def test_get_kafka_cluster_brokers_non_dev_handles_non_string_environment(monkeypatch):
@@ -305,7 +305,8 @@ def test_get_ksqldb_url_non_dev_handles_non_string_environment(monkeypatch):
 def test_get_ksqldb_url_uses_first_default_when_nodes_invalid(monkeypatch):
     monkeypatch.setattr(database.utils, "get_environment", lambda: "PROD")
     monkeypatch.setenv("KSQLDB_STRING", "  ,   ")
-    assert database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO) == "http://localhost:8088/info"
+    with pytest.raises(ValueError, match="HTTPS"):
+        database.get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)
 
 
 def test_table_or_view_exists_ready_error():
@@ -989,7 +990,8 @@ def test_get_kafka_cluster_brokers_resolves_defaults(monkeypatch):
 
     monkeypatch.setattr(database.utils, "get_environment", lambda: "PROD")
     monkeypatch.delenv("KAFKA_BROKER_STRING", raising=False)
-    assert database.get_kafka_cluster_brokers() == ["localhost:9092"]
+    with pytest.raises(ValueError, match="KAFKA_BROKER_STRING"):
+        database.get_kafka_cluster_brokers()
 
 
 def test_table_or_view_exists_is_case_insensitive(monkeypatch):

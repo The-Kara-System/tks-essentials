@@ -4,7 +4,9 @@ import os
 import random
 import re
 import inspect
+import ssl
 from enum import Enum
+from pathlib import Path
 from typing import List
 import uuid
 import httpx
@@ -17,6 +19,14 @@ from tksessentials.constants import DEFAULT_ENCODING, DEFAULT_CONNECTION_TIMEOUT
 
 
 logger = global_logger.setup_custom_logger("app")
+
+_PROTECTED_ENVIRONMENTS = {"UAT", "PROD", "PRODUCTION"}
+_KAFKA_SECURITY_PROTOCOLS = {"PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"}
+_KAFKA_SASL_MECHANISMS = {
+    "PLAIN",
+    "SCRAM-SHA-256",
+    "SCRAM-SHA-512",
+}
 
 class KSQLNotReadyError(Exception):
     pass
@@ -58,8 +68,7 @@ async def is_kafka_available() -> bool:
     """
     producer = None
     try:
-        brokers = get_kafka_cluster_brokers()
-        producer = AIOKafkaProducer(bootstrap_servers=brokers)
+        producer = AIOKafkaProducer(**get_kafka_client_kwargs())
         await producer.start()
         return True
     except Exception as e:
@@ -78,9 +87,71 @@ def _describe_check_name(check: object) -> str:
     return getattr(check, "__name__", check.__class__.__name__)
 
 
-def _is_dev_environment() -> bool:
+def _environment_name() -> str:
     environment = utils.get_environment()
-    return isinstance(environment, str) and environment.upper() == "DEV"
+    return environment.strip().upper() if isinstance(environment, str) else ""
+
+
+def _is_dev_environment() -> bool:
+    return _environment_name() == "DEV"
+
+
+def _is_protected_environment() -> bool:
+    return _environment_name() in _PROTECTED_ENVIRONMENTS
+
+
+def _required_environment_value(name: str) -> str:
+    value = os.getenv(name)
+    if not isinstance(value, str) or not value.strip():
+        environment = _environment_name() or "the current environment"
+        raise ValueError(f"{name} must be set and non-empty in {environment}.")
+    return value.strip()
+
+
+def _optional_environment_value(name: str) -> str | None:
+    value = os.getenv(name)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def _resolve_required_file(name: str, required: bool) -> Path | None:
+    raw_path = _optional_environment_value(name)
+    if raw_path is None:
+        if required:
+            _required_environment_value(name)
+        return None
+
+    try:
+        path = Path(raw_path).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"{name} does not reference a readable file: {raw_path}") from exc
+    if not path.is_file():
+        raise ValueError(f"{name} must reference a file: {raw_path}")
+    return path
+
+
+def _read_secret_file(name: str, required: bool) -> str | None:
+    path = _resolve_required_file(name, required=required)
+    if path is None:
+        return None
+    try:
+        value = path.read_text(encoding=DEFAULT_ENCODING).rstrip("\r\n")
+    except OSError as exc:
+        raise ValueError(f"Unable to read the secret file referenced by {name}.") from exc
+    if not value:
+        raise ValueError(f"The secret file referenced by {name} is empty.")
+    return value
+
+
+def _ssl_context_from_ca_file(name: str, required: bool) -> ssl.SSLContext | None:
+    path = _resolve_required_file(name, required=required)
+    if path is None:
+        return None
+    try:
+        return ssl.create_default_context(cafile=str(path))
+    except (OSError, ssl.SSLError, ValueError) as exc:
+        raise ValueError(f"Unable to load the CA certificate referenced by {name}.") from exc
 
 
 def _strip_and_filter_broker_entries(values: List[str], default: List[str], require_port: bool = False) -> List[str]:
@@ -214,6 +285,28 @@ def _normalize_broker_list(value: str | List[str] | None) -> List[str]:
     return _strip_and_filter_broker_entries(parts, ["localhost:9092"], require_port=True)
 
 
+def _strict_broker_list(value: str | List[str]) -> List[str]:
+    raw_values = value if isinstance(value, (list, tuple)) else value.split(",")
+    brokers: List[str] = []
+    for raw_value in raw_values:
+        if not isinstance(raw_value, str):
+            raise ValueError("KAFKA_BROKER_STRING contains a non-string broker entry.")
+        candidate = raw_value.strip().rstrip("/")
+        host, separator, port = candidate.rpartition(":")
+        if not candidate or not separator or not host or not port.isdigit():
+            raise ValueError(
+                "KAFKA_BROKER_STRING contains an invalid broker endpoint. "
+                "Expected comma-separated host:port values."
+            )
+        port_number = int(port)
+        if port_number < 1 or port_number > 65535:
+            raise ValueError("KAFKA_BROKER_STRING contains an invalid broker port.")
+        brokers.append(candidate)
+    if not brokers:
+        raise ValueError("KAFKA_BROKER_STRING must contain at least one broker endpoint.")
+    return brokers
+
+
 def _normalize_ksqldb_nodes(value: str | List[str] | None) -> List[str]:
     """Normalize ksqlDB node configuration without changing the public contract.
 
@@ -236,15 +329,128 @@ def _normalize_ksqldb_nodes(value: str | List[str] | None) -> List[str]:
     return _strip_and_filter_http_endpoints(parts, ["http://localhost:8088"])
 
 
+def _get_ksqldb_nodes() -> List[str]:
+    if _is_protected_environment():
+        raw_nodes = _required_environment_value("KSQLDB_STRING")
+        nodes = _normalize_ksqldb_nodes(raw_nodes)
+        if any(not node.lower().startswith("https://") for node in nodes):
+            raise ValueError("KSQLDB_STRING must contain HTTPS endpoints in UAT/PROD.")
+        return nodes
+    return _normalize_ksqldb_nodes(os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED"))
+
+
 def get_kafka_cluster_brokers() -> List[str]:
     """Fetch the kafka broker array. This should return an array with nodes and ports.
     e.g. ['localhost:9092', 'localhost:9093']"""
-    if _is_dev_environment():
-        kafka_broker_value = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
-        return _normalize_broker_list(kafka_broker_value)
-    # the value of the KAFKA_BROKER_STRING is set by the global config map.
-    brokers = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
-    return _normalize_broker_list(brokers)
+    if _is_protected_environment():
+        return _strict_broker_list(_required_environment_value("KAFKA_BROKER_STRING"))
+    kafka_broker_value = os.getenv("KAFKA_BROKER_STRING", "NODES_NOT_DEFINED")
+    return _normalize_broker_list(kafka_broker_value)
+
+
+def get_kafka_client_kwargs(
+    bootstrap_servers: str | List[str] | None = None,
+) -> dict[str, object]:
+    """Return one validated aiokafka connection contract for all client types.
+
+    DEV keeps its zero-configuration localhost/PLAINTEXT behavior. UAT and PROD
+    require SASL_SSL with SCRAM-SHA-512, a file-backed password, and a trusted CA.
+    The optional bootstrap override exists for compatibility with snapshot readers;
+    it never bypasses the environment's security requirements.
+    """
+    protected = _is_protected_environment()
+    if bootstrap_servers is None:
+        brokers = get_kafka_cluster_brokers()
+    elif protected:
+        brokers = _strict_broker_list(bootstrap_servers)
+    else:
+        brokers = _normalize_broker_list(bootstrap_servers)
+
+    raw_protocol = _optional_environment_value("KAFKA_SECURITY_PROTOCOL")
+    if protected and raw_protocol is None:
+        raw_protocol = _required_environment_value("KAFKA_SECURITY_PROTOCOL")
+    security_protocol = (raw_protocol or "PLAINTEXT").upper()
+    if security_protocol not in _KAFKA_SECURITY_PROTOCOLS:
+        raise ValueError(
+            "KAFKA_SECURITY_PROTOCOL must be one of "
+            f"{sorted(_KAFKA_SECURITY_PROTOCOLS)}."
+        )
+    if protected and security_protocol != "SASL_SSL":
+        raise ValueError("KAFKA_SECURITY_PROTOCOL must be SASL_SSL in UAT/PROD.")
+
+    client_kwargs: dict[str, object] = {
+        "bootstrap_servers": ",".join(brokers),
+        "security_protocol": security_protocol,
+    }
+
+    uses_sasl = security_protocol.startswith("SASL_")
+    uses_tls = security_protocol in {"SSL", "SASL_SSL"}
+
+    if uses_sasl:
+        raw_mechanism = _required_environment_value("KAFKA_SASL_MECHANISM")
+        sasl_mechanism = raw_mechanism.upper()
+        if sasl_mechanism not in _KAFKA_SASL_MECHANISMS:
+            raise ValueError(
+                "KAFKA_SASL_MECHANISM must be one of "
+                f"{sorted(_KAFKA_SASL_MECHANISMS)}."
+            )
+        if protected and sasl_mechanism != "SCRAM-SHA-512":
+            raise ValueError("KAFKA_SASL_MECHANISM must be SCRAM-SHA-512 in UAT/PROD.")
+
+        client_kwargs.update(
+            {
+                "sasl_mechanism": sasl_mechanism,
+                "sasl_plain_username": _required_environment_value("KAFKA_SASL_USERNAME"),
+                "sasl_plain_password": _read_secret_file(
+                    "KAFKA_SASL_PASSWORD_FILE", required=True
+                ),
+            }
+        )
+
+    if uses_tls:
+        ssl_context = _ssl_context_from_ca_file(
+            "KAFKA_SSL_CA_FILE", required=protected
+        )
+        client_kwargs["ssl_context"] = ssl_context or ssl.create_default_context()
+    elif _optional_environment_value("KAFKA_SSL_CA_FILE") is not None:
+        raise ValueError(
+            "KAFKA_SSL_CA_FILE is set but KAFKA_SECURITY_PROTOCOL does not enable TLS."
+        )
+
+    return client_kwargs
+
+
+def get_ksqldb_httpx_kwargs() -> dict[str, object]:
+    """Return the shared httpx authentication and TLS verification contract."""
+    protected = _is_protected_environment()
+    _get_ksqldb_nodes()
+
+    username = _optional_environment_value("KSQLDB_USERNAME")
+    password_file = _optional_environment_value("KSQLDB_PASSWORD_FILE")
+    ca_file = _optional_environment_value("KSQLDB_CA_FILE")
+
+    if protected:
+        username = _required_environment_value("KSQLDB_USERNAME")
+        password = _read_secret_file("KSQLDB_PASSWORD_FILE", required=True)
+        ssl_context = _ssl_context_from_ca_file("KSQLDB_CA_FILE", required=True)
+        return {"auth": (username, password), "verify": ssl_context}
+
+    if bool(username) != bool(password_file):
+        raise ValueError(
+            "KSQLDB_USERNAME and KSQLDB_PASSWORD_FILE must either both be set or both be unset."
+        )
+
+    request_kwargs: dict[str, object] = {}
+    if username:
+        request_kwargs["auth"] = (
+            username,
+            _read_secret_file("KSQLDB_PASSWORD_FILE", required=True),
+        )
+    if ca_file:
+        request_kwargs["verify"] = _ssl_context_from_ca_file(
+            "KSQLDB_CA_FILE", required=True
+        )
+    return request_kwargs
 
 def compose_consumer_id() -> str:
     """Do not mistaken the consumer_id for the consumer_group_name.
@@ -261,7 +467,7 @@ def compose_consumer_group_name() -> str:
     return utils.get_application_identifier()
 
 async def topic_exists(topic_name):
-    consumer = AIOKafkaConsumer(bootstrap_servers=get_kafka_cluster_brokers())
+    consumer = AIOKafkaConsumer(**get_kafka_client_kwargs())
     await consumer.start()
     try:
         return topic_name in await consumer.topics()
@@ -295,9 +501,6 @@ async def get_default_kafka_producer(client_id: str | None = None) -> AIOKafkaPr
     """
     if client_id is None:
         client_id = compose_producer_id()
-    brokers: List[str] = get_kafka_cluster_brokers()
-    broker_str = ",".join(brokers)
-
     def get_value_serializer(v: any) -> bytes:
         if isinstance(v, pydantic.BaseModel):
             # Pydantic models need different deserialization
@@ -309,7 +512,7 @@ async def get_default_kafka_producer(client_id: str | None = None) -> AIOKafkaPr
         return k.encode(DEFAULT_ENCODING)
 
     producer: AIOKafkaProducer = AIOKafkaProducer(
-        bootstrap_servers=broker_str,
+        **get_kafka_client_kwargs(),
         client_id=client_id,
         key_serializer=lambda k: get_key_serializer(k),
         value_serializer=lambda v: get_value_serializer(v))
@@ -333,11 +536,9 @@ async def get_default_kafka_consumer(
     if client is None:
         client = compose_consumer_id()
 
-    brokers: List[str] = get_kafka_cluster_brokers()
-    broker_str = ",".join(brokers)
-    # Create the Producer instance
+    # Create the Consumer instance
     consumer: AIOKafkaConsumer = AIOKafkaConsumer(topics,
-                                                  bootstrap_servers=broker_str,
+                                                  **get_kafka_client_kwargs(),
                                                   client_id=client,
                                                   group_id=consumer_group,
                                                   key_deserializer=deserialize_kafka_key,
@@ -365,7 +566,7 @@ def is_ksqldb_available() -> bool:
     :return: True if available, False otherwise
     """
     try:
-        response = httpx.get(f"{get_ksqldb_url(KafkaKSqlDbEndPoint.INFO)}")
+        response = _ksqldb_get(get_ksqldb_url(KafkaKSqlDbEndPoint.INFO))
         if response.status_code == 200:
             info = response.json()
             if info.get('KsqlServerInfo', {}).get('serverStatus') == 'RUNNING':
@@ -376,19 +577,41 @@ def is_ksqldb_available() -> bool:
         return False
 
 def get_ksqldb_url(kafka_ksqldb_endpoint_literal: KafkaKSqlDbEndPoint = KafkaKSqlDbEndPoint.KSQL) -> str:
+    ksqldb_nodes = _get_ksqldb_nodes()
     if _is_dev_environment():
-        ksqldb_nodes = _normalize_ksqldb_nodes(os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED"))
         base_url = random.choice(ksqldb_nodes)
         return f"{base_url}/{kafka_ksqldb_endpoint_literal.value}"
     else:
-        ksqldb_nodes = _normalize_ksqldb_nodes(os.getenv("KSQLDB_STRING", "KSQLDB_NOT_DEFINED"))
         base_url = ksqldb_nodes[0]
         return f"{base_url}/{kafka_ksqldb_endpoint_literal.value}"
+
+
+def _ksqldb_get(url: str, timeout: float = DEFAULT_CONNECTION_TIMEOUT):
+    return httpx.get(url, timeout=timeout, **get_ksqldb_httpx_kwargs())
+
+
+def _ksqldb_post(
+    url: str,
+    payload: dict,
+    timeout: float = DEFAULT_CONNECTION_TIMEOUT,
+    headers: dict | None = None,
+):
+    return httpx.post(
+        url,
+        json=payload,
+        headers=headers,
+        timeout=timeout,
+        **get_ksqldb_httpx_kwargs(),
+    )
 
 def table_or_view_exists(name: str, connection_time_out: float = DEFAULT_CONNECTION_TIMEOUT) -> bool:
     """Checks, if the provided table or queryable already exists."""
     ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
-    response = httpx.post(ksql_url, json={"ksql": "LIST TABLES;"}, timeout=connection_time_out)
+    response = _ksqldb_post(
+        ksql_url,
+        {"ksql": "LIST TABLES;"},
+        timeout=connection_time_out,
+    )
     # logger.debug(f"Table Check Result: {response.status_code}: {response.text}")
     # Check if the request was successful
     if response.status_code == 200:
@@ -443,7 +666,12 @@ async def create_table(sql_statement: str, table_name: str):
     sql_statement = await prepare_sql_statement(sql_statement)
     logger.info(f"Prepared SQL statement: {sql_statement}")
     headers = {"Content-Type": "application/json"}
-    response = httpx.post(f"{get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)}", json={"ksql": sql_statement}, headers=headers, timeout=30)
+    response = _ksqldb_post(
+        get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL),
+        {"ksql": sql_statement},
+        headers=headers,
+        timeout=30,
+    )
 
     if response.status_code == 200:
         logger.info(f"Successfully created table {table_name}.")
@@ -479,7 +707,11 @@ async def create_table(sql_statement: str, table_name: str):
 def stream_exists(name: str, connection_time_out: float = 60.0) -> bool:
     """Checks, if the provided table or queryable already exists."""
     ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
-    response = httpx.post(ksql_url, json={"ksql": "LIST STREAMS;"}, timeout=connection_time_out)
+    response = _ksqldb_post(
+        ksql_url,
+        {"ksql": "LIST STREAMS;"},
+        timeout=connection_time_out,
+    )
     # logger.debug(f"Stream Check Result: {response}")
     # logger.info(f"{response.status_code}: {response.text}")
     # Check if the request was successful
@@ -507,7 +739,12 @@ async def create_stream(sql_statement: str, stream_name: str):
     sql_statement = await prepare_sql_statement(sql_statement)
     logger.info(f"Prepared SQL statement: {sql_statement}")
     headers = {"Content-Type": "application/json"}
-    response = httpx.post(f"{get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)}", json={"ksql": sql_statement}, headers=headers, timeout=30)
+    response = _ksqldb_post(
+        get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL),
+        {"ksql": sql_statement},
+        headers=headers,
+        timeout=30,
+    )
 
     if response.status_code == 200:
         logger.info(f"Successfully created stream {stream_name}.")
@@ -544,7 +781,11 @@ async def execute_sql(sql: str, connection_time_out: float = DEFAULT_CONNECTION_
     """Executes the provided sql command. To create tables, use the create_table function instead."""
 
     ksql_url = get_ksqldb_url(KafkaKSqlDbEndPoint.KSQL)
-    response = httpx.post(ksql_url, json={"ksql": sql}, timeout=connection_time_out)
+    response = _ksqldb_post(
+        ksql_url,
+        {"ksql": sql},
+        timeout=connection_time_out,
+    )
 
     # Check if the request was successful
     if response.status_code == 200:
@@ -701,9 +942,7 @@ async def create_topic(
     cleanup_policy: str | List[str] | None = None,
 ):
     """Create a Kafka topic if it does not exist, using aiokafka’s async admin API."""
-    brokers = get_kafka_cluster_brokers()
-    broker_str = brokers if isinstance(brokers, str) else ",".join(brokers)
-    admin = AIOKafkaAdminClient(bootstrap_servers=broker_str)
+    admin = AIOKafkaAdminClient(**get_kafka_client_kwargs())
     # 1. Bootstrap metadata (must do this before calling create_topics)
     await admin.start()  # :contentReference[oaicite:2]{index=2}
     try:
@@ -793,15 +1032,12 @@ async def read_compacted_state_snapshot(
     - key: market (string)
     - value: dict (your message) OR None (tombstone)
     """
-    if isinstance(bootstrap_servers, list):
-        bootstrap_servers = ",".join(bootstrap_servers)
-
     # IMPORTANT: use a unique group id so we don't reuse committed offsets.
     group_id = f"snapshot-{uuid.uuid4()}"
 
     consumer = AIOKafkaConsumer(
         topic,
-        bootstrap_servers=bootstrap_servers,
+        **get_kafka_client_kwargs(bootstrap_servers),
         group_id=group_id,
         enable_auto_commit=False,
         auto_offset_reset="earliest",

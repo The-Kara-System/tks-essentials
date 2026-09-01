@@ -10,6 +10,7 @@ This project has comprehensive unit tests with 100% coverage for the core utilit
 
 - **tests/test_utils.py** - 41 tests covering all functions in `tksessentials/utils.py`
 - **tests/test_validators.py** - 65 tests covering all functions in `tksessentials/validators.py`
+- **tests/test_database_connections.py** - deterministic DEV compatibility and UAT/PROD fail-closed TLS/SCRAM/HTTPS contract tests
 
 ### Coverage Summary
 
