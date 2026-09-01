@@ -8,7 +8,6 @@ import ssl
 from enum import Enum
 from pathlib import Path
 from typing import List
-import uuid
 import httpx
 import pydantic
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
@@ -1031,14 +1030,16 @@ async def read_compacted_state_snapshot(
 
     - key: market (string)
     - value: dict (your message) OR None (tombstone)
+    - group-free: every caller reads every partition independently and needs
+      no consumer-group ACL or committed offsets
     """
-    # IMPORTANT: use a unique group id so we don't reuse committed offsets.
-    group_id = f"snapshot-{uuid.uuid4()}"
-
     consumer = AIOKafkaConsumer(
         topic,
         **get_kafka_client_kwargs(bootstrap_servers),
-        group_id=group_id,
+        # A snapshot is not a load-balanced stream consumer. aiokafka's
+        # NoGroupCoordinator assigns every subscribed partition locally,
+        # which also avoids random, over-broad consumer-group ACLs.
+        group_id=None,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
         key_deserializer=deserialize_kafka_key,

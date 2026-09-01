@@ -800,8 +800,12 @@ async def test_create_topic_re_raises_kafka_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_read_compacted_state_snapshot_no_partitions_after_retry(monkeypatch):
+    consumer_contract = {}
+
     class FakeConsumer:
         def __init__(self, *args, **kwargs):
+            consumer_contract["args"] = args
+            consumer_contract["kwargs"] = kwargs
             self._assigned = set()
 
         async def start(self):
@@ -830,6 +834,8 @@ async def test_read_compacted_state_snapshot_no_partitions_after_retry(monkeypat
 
     assert snapshot == {}
     fake_logger.warning.assert_called_once()
+    assert consumer_contract["args"] == ("topic_x",)
+    assert consumer_contract["kwargs"]["group_id"] is None
 
 
 @pytest.mark.asyncio
